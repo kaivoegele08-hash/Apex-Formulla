@@ -47,6 +47,7 @@ const AudioSys = {
     this.engine = new EngineVoice(c, this.bus.engine, this.noiseBuf);
     if (!this.vols || this.vols.engineModel !== 'synth') this.engine.initModel();
     this.fx = new FxVoices(c, this.bus.effects, this.bus.ambient, this.noiseBuf, this.pinkBuf);
+    this.opp = new OpponentVoices(c, this.bus.engine);
     if (this.vols) this.setVolumes(this.vols);
   },
 
@@ -62,6 +63,8 @@ const AudioSys = {
     if (this.engine) this.engine.setModel(v.engineModel !== 'synth');
   },
 
+  /** Gegnerische Motoren: list = [{ rpm, dist, pan, vrel, load }] (nächste zuerst) */
+  updateOpponents(list) { if (this.ready && this.opp && this.ctx.state === 'running') this.opp.update(list, this.active !== false); },
   /** Pro Frame mit Fahrzeugzustand aufrufen */
   update(dt, car, opts) {
     if (!this.ready || !this.ctx || this.ctx.state !== 'running') return;
@@ -76,6 +79,8 @@ const AudioSys = {
     const t = this.ctx.currentTime;
     if (this.engine) this.engine.out.gain.setTargetAtTime(on ? 1 : 0, t, 0.08);
     if (this.fx) this.fx.setActive(on);
+    if (this.opp && !on) this.opp.update([], false);
+    this.active = on;
   },
 
   // --- kurze Klänge ---
@@ -355,5 +360,37 @@ class FxVoices {
     const crowd = opts.crowd || 0;
     this.crowd.g.gain.setTargetAtTime(0.03 + crowd * 0.12, t, 0.5); this.crowdLfoG.gain.setTargetAtTime(0.02 + crowd * 0.04, t, 0.5);
     this.birds.g.gain.setTargetAtTime(0.004 * (1 - smoothstep(0, 40, spd)), t, 0.5);
+  }
+}
+
+/** Motoren der nächsten Gegner: einfache Synthese, Entfernungsdämpfung, Stereo, Doppler */
+class OpponentVoices {
+  constructor(c, out) {
+    this.c = c; this.voices = [];
+    for (let i = 0; i < 3; i++) {
+      const o1 = c.createOscillator(); o1.type = 'sawtooth';
+      const o2 = c.createOscillator(); o2.type = 'square';
+      const g2 = c.createGain(); g2.gain.value = 0.3;
+      const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.8; lp.frequency.value = 1200;
+      const g = c.createGain(); g.gain.value = 0;
+      const pan = c.createStereoPanner ? c.createStereoPanner() : null;
+      o1.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g);
+      if (pan) { g.connect(pan); pan.connect(out); } else g.connect(out);
+      o1.start(); o2.start();
+      this.voices.push({ o1, o2, lp, g, pan });
+    }
+  }
+  update(list, active) {
+    const t = this.c.currentTime;
+    this.voices.forEach((v, i) => {
+      const d = active ? list[i] : null;
+      if (!d) { v.g.gain.setTargetAtTime(0, t, 0.08); return; }
+      const dop = clamp(343 / (343 - clamp(d.vrel, -120, 120)), 0.7, 1.4);
+      const f = Math.max(40, d.rpm / 20) * dop;
+      v.o1.frequency.setTargetAtTime(f, t, 0.02); v.o2.frequency.setTargetAtTime(f * 0.5, t, 0.02);
+      v.lp.frequency.setTargetAtTime(500 + 3800 * Math.exp(-d.dist / 70) + d.load * 1200, t, 0.05);
+      v.g.gain.setTargetAtTime(0.16 * (0.4 + 0.6 * d.load) / Math.pow(1 + d.dist / 10, 1.25), t, 0.05);
+      if (v.pan) v.pan.pan.setTargetAtTime(clamp(d.pan, -0.9, 0.9), t, 0.05);
+    });
   }
 }

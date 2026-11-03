@@ -268,7 +268,11 @@ const FFB = {
   _setState(s, msg) { this.state = s; this.message = msg; Events.emit('ffb:state', s, msg); },
 
   /** Testkraft: erst nach rechts, dann nach links (zur Kontrolle der Richtung) */
-  test() { this.testUntil = performance.now() + 1600; },
+  test() {
+    this.testUntil = performance.now() + 1600;
+    // sofort spürbar (nicht erst mit dem nächsten Bild): zuerst nach rechts
+    if (this.wheel) { const f = 0.35; this.out = f; this.wheel.setForce((this.cfg.invert ? 1 : -1) * f); }
+  },
   setDamper(k) { if (this.wheel) this.wheel.setDamper(k); },
 
   /** Pro Frame: Signal aus der Physik berechnen und ans Lenkrad geben */

@@ -17,74 +17,16 @@ const DEFAULT_SETTINGS = {
     pad: { map: DEFAULT_PAD, deadzone: 0.08, linearity: 1.6, speedSteer: 0.32, triggerGamma: 1.0 },
     kbSteerRate: 2.6, kbSteerReturn: 4.5, kbSpeedSteer: 0.22, rumble: 0.8,
   },
-  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true },
+  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du' },
+  race: { laps: 5, opponents: 19, strength: 0.96, grid: 'random', playerGrid: 'back', damage: 'full' },
   ffb: { enabled: false, strength: 0.7, invert: false, damper: 0.15, road: 0.5, vibration: 0.6 },
 };
-
-/** Testfahrt: Rundenzeiten, Delta zur Bestzeit, Gültigkeit, Überholmodus einmal pro Runde */
-class TestSession {
-  constructor(track) {
-    this.track = track;
-    this.time = 0; this.lap = 0; this.lapStart = 0; this.started = false;
-    this.lastLap = Infinity; this.lapValid = true; this.progress = 0; this.prevS = null; this.offT = 0;
-    const N = Math.ceil(track.length / 10) + 2;
-    this.trace = new Float32Array(N).fill(-1);
-    const best = Save.get('bestLaps', {})[track.id];
-    this.bestLap = best ? best.time : Infinity;
-    this.bestTrace = best && best.trace ? Float32Array.from(best.trace) : null;
-    this.delta = null;
-  }
-  get lapTime() { return this.started ? this.time - this.lapStart : 0; }
-  invalidate() { if (this.started) this.lapValid = false; }
-  step(h, v) {
-    this.time += h;
-    const L = this.track.length, s = v.trackS;
-    if (this.prevS !== null) {
-      let ds = s - this.prevS; if (ds < -L / 2) ds += L; if (ds > L / 2) ds -= L;
-      this.progress += ds;
-      if (this.prevS > L - 80 && s < 80 && ds > 0) {
-        const frac = (L - this.prevS) / Math.max(1e-6, (L - this.prevS) + s);
-        const tCross = this.time - h + h * frac;
-        if (this.started) this._finish(tCross - this.lapStart, v);
-        this.started = true; this.lap++;
-        this.lapStart = tCross; this.progress = s; this.lapValid = true; this.trace.fill(-1);
-        v.overtakeActive = false; v.overtakeAvailable = true;
-        Events.emit('lap:start', this.lap);
-      }
-      if (this.started) {
-        const k = Math.floor(s / 10);
-        if (k >= 0 && k < this.trace.length && this.trace[k] < 0 && this.progress > s - 20) this.trace[k] = this.time - this.lapStart;
-        // Live-Delta (lineare Interpolation zwischen 10-m-Stützstellen der Bestrunde)
-        if (this.bestTrace && this.progress > 30) {
-          const f = s / 10, i0 = Math.floor(f), i1 = i0 + 1;
-          const b0 = this.bestTrace[i0], b1 = this.bestTrace[i1];
-          if (b0 >= 0 && b1 >= 0) this.delta = (this.time - this.lapStart) - lerp(b0, b1, f - i0);
-        } else this.delta = null;
-        // Alle vier Räder neben der Strecke → Runde ungültig (Track Limits folgen in Phase 2)
-        if (v.offTrackWheels >= 4) { this.offT += h; if (this.offT > 0.25) this.invalidate(); } else this.offT = 0;
-      }
-    }
-    this.prevS = s;
-  }
-  _finish(t, v) {
-    const valid = this.lapValid && this.progress > this.track.length * 0.95;
-    this.lastLap = t;
-    Events.emit('lap:done', t, valid);
-    if (valid && t < this.bestLap) {
-      this.bestLap = t;
-      this.bestTrace = Float32Array.from(this.trace);
-      const all = Save.get('bestLaps', {});
-      all[this.track.id] = { time: t, trace: Array.from(this.trace, x => Math.round(x * 1000) / 1000), compound: v.compound, date: new Date().toISOString() };
-      Save.set('bestLaps', all);
-      Events.emit('lap:best', t);
-    }
-  }
-}
 
 const Game = {
   settings: null, state: 'boot', loop: null, garage: null,
   trackModels: {}, track: null, trackVisual: null, builtFor: null,
   vehicle: null, carVis: null, rig: null, minimap: null, session: null,
+  mode: 'test', race: null, raceVis: [], ghost: null, raceRec: null, lines: {}, tvSpots: null, raceSectors: [null, null, null],
   perfT: 0, perfLow: 0, camMode: 'chaseNear', overlay: false, hudOn: true,
 
   async boot() {
@@ -115,6 +57,8 @@ const Game = {
     });
     Events.on('lap:done', (t, valid) => { UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
     Events.on('lap:best', (t) => UI.hudMsg(`Neue Bestzeit ${fmtTime(t)}`, 3000));
+    Events.on('lap:limits', (n) => { UI.hudMsg('Track Limits – Runde ungültig', 1800); AudioSys.beep(520, 0.1, 0.2); });
+    this._raceEvents();
     if (Input.repairNotes.length) setTimeout(() => UI.toast('Fehlerhafte Knopfbelegung entfernt (Lenk-/Pedalachse als Knopf): ' + Input.repairNotes.join(' · ') + ' – bitte bei Bedarf neu belegen.', 9000), 800);
     this.state = 'menu';
     UI.show('main');
@@ -143,55 +87,171 @@ const Game = {
   // ---------------------------------------------------------------------------
   //  Sitzung
   // ---------------------------------------------------------------------------
-  async startTestDrive() {
+  getLine(id) { if (!this.lines[id]) this.lines[id] = new RacingLine(this.getTrackModel(id)); return this.lines[id]; },
+  setupFor(id) { return Object.assign({}, DEFAULT_SETUP, Save.get('setups', {})[id] || {}); },
+  saveSetup(id, setup) { const all = Save.get('setups', {}); all[id] = Object.assign({}, setup); Save.set('setups', all); },
+  /** Setup sofort übernehmen (Testfahrt): Parameter neu berechnen und Auto an die Strecke setzen */
+  applySetupLive(setup) {
+    const v = this.vehicle; if (!v) return;
+    v.setup = Object.assign({}, DEFAULT_SETUP, setup); v.applySetup(v.setup);
+    this.resetCar();
+  },
+  get recorder() { return this.mode === 'race' ? this.raceRec : (this.session && this.session.rec); },
+
+  /** Ladebildschirm zeigen, laufende Sitzung abbauen */
+  async _begin(text) {
     AudioSys.unlock();
-    this.state = 'loading';
+    this._teardown();
+    this.state = 'loading'; this.loop.paused = false;
     UI.hideScreens();
-    const boot = $('boot'); boot.classList.remove('hidden'); $('bootMsg').textContent = 'Strecke wird aufgebaut …';
+    const boot = $('boot'); boot.classList.remove('hidden'); $('bootMsg').textContent = text;
     await nextFrame(); await nextFrame();
+  },
+  /** Strecke (Welt, Grafik, Minikarte) nur bei Bedarf neu aufbauen */
+  async _prepareTrack(id) {
+    const track = this.track = this.getTrackModel(id);
+    const key = track.id + '|' + Render.quality.trees;
+    if (this.builtFor !== key) {
+      if (Render.scene) Render.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+      Render.createWorld(track.def.timeOfDay);
+      this.trackVisual = new TrackVisual(track, Render.quality);
+      Render.scene.add(this.trackVisual.group);
+      this.minimap = new Minimap(track, 220);
+      this.builtFor = key;
+    }
+    this.tvSpots = buildTvSpots(track);
+    return track;
+  },
+  _playerVisual() {
+    this.carVis = new CarVisual(this.team, this.settings.game.number, { detail: 'high', physical: Render.quality.physicalPaint });
+    this.carVis.root.traverse(o => { if (o.isMesh) o.castShadow = Render.quality.shadows > 0; });
+    Render.scene.add(this.carVis.root);
+  },
+  /** Alles entfernen, was zu einer Sitzung gehört */
+  _teardown() {
+    const sc = Render.scene;
+    if (sc) {
+      if (this.carVis) sc.remove(this.carVis.root);
+      for (const r of this.raceVis) sc.remove(r.vis.root);
+      if (this.ghost) sc.remove(this.ghost.root);
+    }
+    this.vehicle = null; this.carVis = null; this.session = null; this.race = null; this.raceVis = []; this.ghost = null; this.raceRec = null;
+    this.resultsShown = false; this.playerDoneT = null;
+    if (AudioSys.opp) AudioSys.updateOpponents([]);
+    UI.setRaceHud(false);
+  },
+  /** Gemeinsamer Abschluss beim Start: Kamera, Shader vorkompilieren, HUD an */
+  _go(msg) {
+    this.rig = new CameraRig(Render.camera);
+    this.setCamera(this.settings.camera.mode === 'tv' ? 'chaseNear' : this.settings.camera.mode);
+    Render.clearParticles();
+    Render.applyQuality(this.settings.graphics);
+    this._updateVisuals(0, 1);
+    Render.renderer.compile(Render.scene, Render.camera);
+    $('boot').classList.add('hidden');
+    $('hudMode').textContent = this.mode === 'race' ? 'Rennen' : 'Testfahrt';
+    UI.setHudVisible(this.hudOn);
+    Input.gameActive = true; Input.flush();
+    AudioSys.setActive(true);
+    this.state = 'driving';
+    this.loop.paused = false; this.loop.acc = 0;
+    UI.hudMsg(msg, 2500);
+  },
+  _fail(err) {
+    console.error(err);
+    $('boot').classList.remove('hidden');
+    window.__apexShowError && window.__apexShowError('Fehler beim Aufbau der Sitzung: ' + err.message);
+    this.state = 'menu';
+  },
+
+  async startTestDrive() {
+    await this._begin('Strecke wird aufgebaut …');
     try {
-      const track = this.track = this.getTrackModel('ringpark');
-      const key = track.id + '|' + Render.quality.trees;
-      if (this.builtFor !== key) {
-        if (Render.scene) Render.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-        Render.createWorld(track.def.timeOfDay);
-        this.trackVisual = new TrackVisual(track, Render.quality);
-        Render.scene.add(this.trackVisual.group);
-        this.minimap = new Minimap(track, 220);
-        this.builtFor = key;
-      }
+      const track = await this._prepareTrack('ringpark');
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
       await nextFrame();
-      if (this.carVis) Render.scene.remove(this.carVis.root);
-      const v = this.vehicle = new Vehicle(CAR_SPEC, {});
+      this.mode = 'test';
+      const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
       v.setCompound(this.settings.game.compound, 70);
       v.placeOnTrack(track, track.length - 30, -track.HW[track.N - 15] * 0.42);
       v.gear = 1;
       this.applyAids();
-      this.carVis = new CarVisual(this.team, this.settings.game.number, { detail: 'high', physical: Render.quality.physicalPaint });
-      this.carVis.root.traverse(o => { if (o.isMesh) o.castShadow = Render.quality.shadows > 0; });
-      Render.scene.add(this.carVis.root);
-      this.rig = new CameraRig(Render.camera);
-      this.setCamera(this.settings.camera.mode);
-      this.session = new TestSession(track);
-      Render.clearParticles();
-      Render.applyQuality(this.settings.graphics);
-      // Erstes Bild rendern, damit Shader kompiliert sind
-      this._updateVisuals(0, 1);
-      Render.renderer.compile(Render.scene, Render.camera);
-      boot.classList.add('hidden');
-      UI.setHudVisible(this.hudOn);
-      Input.gameActive = true; Input.flush();
-      AudioSys.setActive(true);
-      this.state = 'driving';
-      this.loop.paused = false; this.loop.acc = 0;
-      UI.hudMsg('Testfahrt – Kurstadt Ringpark', 2500);
-    } catch (err) {
-      console.error(err);
-      boot.classList.remove('hidden');
-      window.__apexShowError && window.__apexShowError('Fehler beim Aufbau der Sitzung: ' + err.message);
-      this.state = 'menu';
-    }
+      this._playerVisual();
+      this.session = new PracticeSession(track);
+      if (this.settings.game.ghost !== false) { this.ghost = new GhostCar(this.team, this.settings.game.number); Render.scene.add(this.ghost.root); }
+      this._go('Testfahrt – ' + track.name);
+    } catch (err) { this._fail(err); }
+  },
+
+  async startRace() {
+    await this._begin('Startaufstellung wird vorbereitet …');
+    try {
+      const track = await this._prepareTrack('ringpark');
+      $('bootMsg').textContent = 'Ideallinie und Gegner werden berechnet …';
+      await nextFrame();
+      const line = this.getLine(track.id), R = this.settings.race, G = this.settings.game;
+      const field = buildField({ playerTeam: G.team, playerName: G.playerName || 'Du', playerNumber: G.number, size: R.opponents + 1, gridMode: R.grid, playerGrid: R.playerGrid });
+      for (const e of field) { e.compound = e.player ? G.compound : 'medium'; if (e.player) e.setup = this.setupFor(track.id); }
+      this.mode = 'race';
+      const race = this.race = new RaceSession({ track, line, laps: R.laps, entries: field, damage: R.damage, aiStrength: R.strength });
+      const me = race.player;
+      this.vehicle = me.vehicle;
+      this.applyAids();
+      this._playerVisual();
+      $('bootMsg').textContent = 'Fahrzeuge werden lackiert …';
+      await nextFrame();
+      for (const e of race.entries) {
+        if (e.player) continue;
+        const team = TEAMS.find(t => t.id === e.team);
+        const vis = new CarVisual(team, e.number, { detail: 'low', physical: false });
+        Render.scene.add(vis.root);
+        this.raceVis.push({ e, vis });
+      }
+      this.session = {
+        kind: 'race', delta: null, invalidate() { },
+        get lap() { return Math.max(1, me.timing.lap); }, get lapTime() { return me.timing.lapTime; },
+        get lastLap() { return me.timing.lastLap; }, get bestLap() { return me.timing.bestLap; }, get lapValid() { return me.timing.valid; },
+      };
+      this.raceRec = new LapRecorder(track, { ghost: false });
+      this.raceSectors = [null, null, null];
+      me.timing.on((type, data) => {
+        if (type === 'lap') { this.raceRec.end(data); this.raceSectors = [null, null, null]; if (!me.finished) this.raceRec.begin(data.lap + 1); }
+        else if (type === 'invalid') this.raceSectors = this.raceSectors.map(x => x && 'invalid');
+      });
+      UI.setRaceHud(true, race.entries.length);
+      this._go(`${track.name} · ${R.laps} ${R.laps === 1 ? 'Runde' : 'Runden'}`);
+      setTimeout(() => { if (this.race === race && race.state !== 'race') UI.hudMsg('Startaufstellung – Gas zum Vorbereiten, das Auto wird gehalten, bis die Ampel erlischt', 3600); }, 1200);
+    } catch (err) { this._fail(err); }
+  },
+
+  /** Ereignisse des Rennens → HUD, Funk, Ergebnis */
+  _raceEvents() {
+    Events.on('race:lights', (n) => { UI.setLights(n); if (n > 0) AudioSys.beep(n === 5 ? 880 : 660, 0.12, 0.2, 'effects'); });
+    Events.on('race:start', () => { UI.hudMsg('Los!', 1400); AudioSys.beep(1320, 0.25, 0.25, 'effects'); if (this.raceRec) this.raceRec.begin(1); });
+    Events.on('race:msg', (text, entry, kind) => { if (kind === 'win' || kind === 'out' || kind === 'fastest' || (entry && entry.player)) UI.hudMsg(text, 3200); });
+    Events.on('race:limits', (n, text) => { UI.hudMsg(n ? `Track Limits – ${text}` : text, 2600); AudioSys.radio(); });
+    Events.on('race:damage', (parts) => UI.hudMsg('Schaden: ' + parts.join(', '), 2600));
+    Events.on('race:sector', (d) => { this.raceSectors[d.k] = !this.race.player.timing.valid ? 'invalid' : d.overall ? 'purple' : d.pb ? 'green' : 'yellow'; });
+    Events.on('race:contact', (sp) => { if (sp > 6) UI.hudMsg('Kontakt!', 900); });
+    Events.on('race:finished', (e) => { if (e.player) this._playerDone(`Zielflagge – Platz ${e.pos}`); });
+    Events.on('race:retired', (e) => { if (e.player) this._playerDone('Ausgeschieden'); });
+    Events.on('race:over', () => { if (this.state === 'finished' && UI.current === 'results') UI.show('results', { noHistory: true }); });
+  },
+  /** Spieler im Ziel oder ausgeschieden: Auslaufrunde übernimmt die KI, TV-Kamera, Ergebnis nach kurzer Pause */
+  _playerDone(msg) {
+    const race = this.race, me = race && race.player; if (!me || this.playerDoneT) return;
+    this.playerDoneT = performance.now();
+    UI.hudMsg(msg, 4000);
+    AudioSys.radio();
+    if (!me.retired) { me.ai = new AIDriver(me.vehicle, race.line, { skill: 0.9, aggression: 0, consistency: 1, reaction: 0 }, 99); }
+    else { me.active = false; }
+    setTimeout(() => {
+      if (!this.race || this.race !== race) return;
+      if (this.state === 'driving') { this.state = 'finished'; Input.gameActive = false; }
+      this.setCamera('tv');
+      UI.setHudVisible(false); UI.toggleMfd(false);
+      UI.show('results', { noHistory: true });
+    }, 5000);
   },
   applyAids() {
     const v = this.vehicle; if (!v) return;
@@ -215,8 +275,8 @@ const Game = {
     v.soc = soc; v.ersMode = ers; v.brakeBias = bb;
     v.gear = 1;
     this.applyAids();
-    this.session.invalidate();
-    this.session.prevS = v.trackS;
+    if (this.mode === 'race') { const me = this.race.player; me.ghostT = 3; me.timing.prevS = v.trackS; }
+    else { this.session.invalidate(); this.session.timing.prevS = v.trackS; }
     if (this.rig) this.rig.init = false;
     Render.clearParticles();
     UI.hudMsg('Fahrzeug zurückgesetzt', 1500);
@@ -245,8 +305,7 @@ const Game = {
     Input.gameActive = false;
     AudioSys.setActive(false);
     UI.setHudVisible(false); UI.toggleMfd(false);
-    if (this.carVis && Render.scene) Render.scene.remove(this.carVis.root);
-    this.vehicle = null; this.carVis = null; this.session = null;
+    this._teardown();
     UI.prev = [];
     UI.show('main', { noHistory: true });
   },
@@ -258,11 +317,11 @@ const Game = {
   pre(dt) {
     const v = this.vehicle;
     Input.update(dt, v ? v.speedKmh : 0);
+    const autoDrive = this.mode === 'race' && this.race && this.race.player && this.race.player.ai;
     if (this.state === 'driving' && v) {
-      const st = Input.state, inp = v.input;
-      inp.steer = st.steer; inp.throttle = st.throttle; inp.brake = st.brake; inp.clutch = st.clutch; inp.steerSource = st.steerSource;
+      if (!autoDrive) { const st = Input.state, inp = v.input; inp.steer = st.steer; inp.throttle = st.throttle; inp.brake = st.brake; inp.clutch = st.clutch; inp.steerSource = st.steerSource; }
       this._actions();
-    } else if ((this.state === 'menu' || this.state === 'paused') && Input.pressed('pause') && !UI.wizard && !$('modalRoot').children.length) {
+    } else if ((this.state === 'menu' || this.state === 'paused' || (this.state === 'finished' && UI.current !== 'results')) && Input.pressed('pause') && !UI.wizard && !$('modalRoot').children.length) {
       if (UI.current === 'pause') this.resume();
       else if (UI.current && UI.current !== 'main') UI.back();
     }
@@ -299,31 +358,49 @@ const Game = {
     if (I.pressed('hud')) { this.hudOn = !this.hudOn; UI.setHudVisible(this.hudOn); }
   },
   step(h) {
-    if (this.state !== 'driving' || !this.vehicle) return;
-    this.vehicle.step(h);
-    this.session.step(h, this.vehicle);
+    if ((this.state !== 'driving' && this.state !== 'finished') || !this.vehicle) return;
+    if (this.mode === 'race' && this.race) {
+      const race = this.race, me = race.player;
+      race.step(h);
+      if (this.raceRec && me.timing.started && !me.finished) this.raceRec.sample(me.vehicle, me.timing.lapTime, me.timing.progress);
+    } else {
+      this.vehicle.step(h);
+      this.session.step(h, this.vehicle);
+    }
+  },
+  /** Punkte für die Minikarte */
+  mapCars() {
+    const col = this.team.colors[0];
+    if (this.mode === 'race' && this.race) {
+      return this.race.entries.filter(e => e.active || e.player).map(e => ({ x: e.vehicle.pos.x, z: e.vehicle.pos.z, color: TEAMS.find(t => t.id === e.team).colors[0], player: e.player }))
+        .sort((a, b) => a.player - b.player);
+    }
+    const out = [];
+    if (this.ghost && this.ghost.root.visible) out.push({ x: this.ghost.root.position.x, z: this.ghost.root.position.z, color: 'rgba(160,200,255,0.8)' });
+    if (this.vehicle) out.push({ x: this.vehicle.pos.x, z: this.vehicle.pos.z, color: col, player: true });
+    return out;
   },
   frame(dt, alpha) {
     UI.frame(dt);
     const G = this.settings.graphics;
     if (this.state === 'menu' || this.state === 'boot') {
       if (this.garage) { this.garage.update(dt, Render.width / Render.height); Render.render(this.garage.scene, this.garage.camera); }
-    } else if ((this.state === 'driving' || this.state === 'paused') && this.vehicle) {
+    } else if ((this.state === 'driving' || this.state === 'paused' || this.state === 'finished') && this.vehicle) {
       this._updateVisuals(dt, alpha);
-      FFB.update(dt, this.vehicle, this.state === 'driving');
+      FFB.update(dt, this.vehicle, this.state === 'driving' && !(this.race && this.race.player.ai));
       Render.render();
       this._autoQuality(dt);
     }
-    if (this.state !== 'driving' && this.state !== 'paused') FFB.update(dt, null, false);   // Menü: keine Kraft (außer Testkraft)
+    if (this.state !== 'driving' && this.state !== 'paused' && this.state !== 'finished') FFB.update(dt, null, false);   // Menü: keine Kraft (außer Testkraft)
     UI.updateFps(dt, G.showFps, G.frameGraph);
   },
   _updateVisuals(dt, alpha) {
     const v = this.vehicle, S = this.settings, now = performance.now() / 1000;
-    const driving = this.state === 'driving';
+    const driving = this.state === 'driving' || this.state === 'finished';
     // Ereignisse aus der Physik
     for (const e of v.events) {
       if (e.type === 'shift') AudioSys.shift(e.value > 0);
-      else if (e.type === 'impact') { AudioSys.impact(e.value); if (e.value > 3) UI.hudMsg('Einschlag!', 900); this.session && this.session.invalidate(); }
+      else if (e.type === 'impact') { AudioSys.impact(e.value); if (e.value > 3 && !e.car) UI.hudMsg('Einschlag!', 900); if (this.mode === 'test') this.session.invalidate(); }
       else if (e.type === 'shiftDenied') { AudioSys.beep(420, 0.08, 0.2); UI.hudMsg('Schaltsperre – Drehzahl zu hoch', 1000); }
     }
     v.events.length = 0;
@@ -332,7 +409,7 @@ const Game = {
     this.carVis.update(v, alpha, steerDeg, { delta: this.session ? this.session.delta : null }, now);
     const C = S.camera;
     this.rig.update(dt, { position: this.carVis.root.position, quaternion: this.carVis.root.quaternion, vehicle: v }, {
-      cockpit: C.cockpit, chaseFov: C.chaseFov,
+      cockpit: C.cockpit, chaseFov: C.chaseFov, tvSpots: this.tvSpots, trackLength: this.track.length,
       lookBack: driving && Input.isHeld('lookBack'), lookLeft: driving && Input.isHeld('lookLeft'), lookRight: driving && Input.isHeld('lookRight'),
     });
     // Kamera nicht unter den Boden
@@ -341,6 +418,7 @@ const Game = {
       if (cam.position.y < gh + 0.45) cam.position.y = gh + 0.45;
     }
     Render.updateSun(this.carVis.root.position);
+    this._otherCars(dt, alpha, now);
     if (driving) { this._particles(dt); Render.updateParticles(dt); }
     // Audio
     AudioSys.update(dt, v, { interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
@@ -353,7 +431,42 @@ const Game = {
       const imp = dI < 0.3 ? Math.min(1, v.impact / 8) : 0;
       Input.rumble(Math.max(v.kerbVib * 0.55, v.scrapeIntensity * 0.6, imp), Math.max(slip * 0.5, lock, v.surfVib * 0.4), 90);
     }
-    if (this.hudOn) UI.updateHud(dt, v, this.session, this.minimap);
+    if (this.hudOn) {
+      UI.updateHud(dt, v, this.session, this.minimap);
+      if (this.mode === 'race' && this.race) {
+        this._raceHudT = (this._raceHudT || 0) + dt;
+        if (this._raceHudT > 0.25) { this._raceHudT = 0; UI.updateRaceHud(this.race); }
+        UI.setSectors(this.raceSectors, this.race.player.timing.started ? this.race.player.timing.sector : -1);
+      } else if (this.session && this.session.sectorState) UI.setSectors(this.session.sectorState, this.session.started ? this.session.timing.sector : -1);
+    }
+  },
+  /** KI-Fahrzeuge, Ghost und Gegner-Motorklang */
+  _otherCars(dt, alpha, now) {
+    const cam = Render.camera, cp = cam.position;
+    if (this.ghost) {
+      const S = this.session, show = S && S.started && S.ghost && this.state !== 'finished';
+      this.ghost.update(show ? S.ghost.data : null, S ? S.lapTime : 0, cp);
+    }
+    if (this.mode !== 'race' || !this.race) return;
+    const shadows = Render.quality.shadows > 0, opp = [];
+    const right = this._camRight || (this._camRight = new THREE.Vector3());
+    right.set(1, 0, 0).applyQuaternion(cam.quaternion);
+    for (const { e, vis } of this.raceVis) {
+      if (!e.active) { vis.root.visible = false; continue; }
+      vis.root.visible = true;
+      const v = e.vehicle;
+      vis.update(v, alpha, v.input.steer * CAR_SPEC.steerLockDeg, null, now);
+      const dx = v.pos.x - cp.x, dy = v.pos.y - cp.y, dz = v.pos.z - cp.z, dist = Math.hypot(dx, dy, dz);
+      setCarLod(vis, dist, shadows);
+      if (dist < 250) {
+        const inv = 1 / Math.max(0.1, dist);
+        // Annäherungsgeschwindigkeit entlang der Sichtlinie (für Doppler)
+        const pv = this.vehicle.vel, vrel = -((v.vel.x - pv.x) * dx + (v.vel.y - pv.y) * dy + (v.vel.z - pv.z) * dz) * inv;
+        opp.push({ rpm: v.rpm, dist, pan: (dx * right.x + dy * right.y + dz * right.z) * inv, vrel, load: v.input.throttle });
+      }
+    }
+    opp.sort((a, b) => a.dist - b.dist);
+    AudioSys.updateOpponents(this.state === 'paused' ? [] : opp.slice(0, 3));
   },
   _particles(dt) {
     const v = this.vehicle, fx = Render.fx, q = Render.quality.particles;
@@ -400,7 +513,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);

@@ -6,6 +6,16 @@ START
   Edge oder Brave (Force Feedback braucht WebHID – das hat Firefox nicht).
   Beim ersten Start wird Three.js aus dem Internet geladen.
 
+SPIELEN
+  Hauptmenü → „Schnelles Rennen“: Runden, Gegnerzahl (bis 19), KI-Stärke,
+  Startplatz und Schaden wählen. In der Startaufstellung wird das Auto
+  gehalten (Gas geben zum Vorbereiten ist erlaubt); wenn die fünf roten
+  Lichter erlöschen, geht es los.
+  „Testfahrt / Training“: Rundenzeiten mit Sektoren, Ghost der Bestrunde,
+  Telemetrie (im Pausemenü) und Fahrzeug-Setup.
+  Track Limits: alle vier Räder hinter der weißen Linie = Runde ungültig,
+  im Rennen nach 3 Verwarnungen je 5 s Strafe.
+
 LENKRAD (Logitech G920 u. a.)
   1. Lenkrad anschließen, im Spiel einen Knopf am Lenkrad drücken.
   2. Einstellungen → Lenkrad & Pedale → Kalibrierungsassistent.

@@ -146,16 +146,16 @@ const TEAMS = [
   { id: 'tempest',    name: 'Tempest Formula',      short: 'TMP', colors: ['#5c2b88', '#b8f500', '#ffffff'], pattern: 'stripe',  sponsors: ['SOLVERA', 'CYRANEX'] },
 ];
 const DRIVERS = [
-  { name: 'Lukas Brenner',      nat: 'DEU', num: 7,  team: 'aurora' },     { name: 'Mateo Aranda',       nat: 'ESP', num: 21, team: 'aurora' },
-  { name: 'Sven Lindqvist',     nat: 'SWE', num: 9,  team: 'nordlicht' },  { name: 'Elliot Hartley',     nat: 'GBR', num: 26, team: 'nordlicht' },
-  { name: 'Kenji Morioka',      nat: 'JPN', num: 18, team: 'kestrel' },    { name: 'Rafael Duarte',      nat: 'BRA', num: 12, team: 'kestrel' },
-  { name: 'Théo Marchand',      nat: 'FRA', num: 31, team: 'atlas' },      { name: 'Harrison Whitfield', nat: 'AUS', num: 4,  team: 'atlas' },
-  { name: 'Aleksander Nowak',   nat: 'POL', num: 15, team: 'solaris' },    { name: 'Daniel Okafor',      nat: 'GBR', num: 42, team: 'solaris' },
-  { name: 'Jonas Vermeulen',    nat: 'BEL', num: 8,  team: 'brennhagen' }, { name: 'Noah Fischbacher',   nat: 'CHE', num: 27, team: 'brennhagen' },
-  { name: 'Matteo Ferrandi',    nat: 'ITA', num: 11, team: 'monteverde' }, { name: 'Felipe Castañeda',   nat: 'MEX', num: 33, team: 'monteverde' },
-  { name: 'Arjun Mehta',        nat: 'IND', num: 19, team: 'halcyon' },    { name: "Liam O'Rourke",      nat: 'IRL', num: 6,  team: 'halcyon' },
-  { name: 'Emil Haugland',      nat: 'NOR', num: 24, team: 'ironvale' },   { name: 'Carlos Medina',      nat: 'ARG', num: 14, team: 'ironvale' },
-  { name: 'Yuto Saeki',         nat: 'JPN', num: 37, team: 'tempest' },    { name: 'Samuel Achterberg',  nat: 'NLD', num: 5,  team: 'tempest' },
+  { name: 'Lukas Brenner',      nat: 'DEU', num: 7,  team: 'aurora', rating: 0.86, aggression: 0.6 },     { name: 'Mateo Aranda',       nat: 'ESP', num: 21, team: 'aurora', rating: 0.72, aggression: 0.5 },
+  { name: 'Sven Lindqvist',     nat: 'SWE', num: 9,  team: 'nordlicht', rating: 0.95, aggression: 0.55 },  { name: 'Elliot Hartley',     nat: 'GBR', num: 26, team: 'nordlicht', rating: 0.8, aggression: 0.7 },
+  { name: 'Kenji Morioka',      nat: 'JPN', num: 18, team: 'kestrel', rating: 0.84, aggression: 0.45 },    { name: 'Rafael Duarte',      nat: 'BRA', num: 12, team: 'kestrel', rating: 0.7, aggression: 0.8 },
+  { name: 'Théo Marchand',      nat: 'FRA', num: 31, team: 'atlas', rating: 0.9, aggression: 0.5 },      { name: 'Harrison Whitfield', nat: 'AUS', num: 4,  team: 'atlas', rating: 0.76, aggression: 0.65 },
+  { name: 'Aleksander Nowak',   nat: 'POL', num: 15, team: 'solaris', rating: 0.66, aggression: 0.4 },    { name: 'Daniel Okafor',      nat: 'GBR', num: 42, team: 'solaris', rating: 0.62, aggression: 0.6 },
+  { name: 'Jonas Vermeulen',    nat: 'BEL', num: 8,  team: 'brennhagen', rating: 0.74, aggression: 0.5 }, { name: 'Noah Fischbacher',   nat: 'CHE', num: 27, team: 'brennhagen', rating: 0.58, aggression: 0.45 },
+  { name: 'Matteo Ferrandi',    nat: 'ITA', num: 11, team: 'monteverde', rating: 0.82, aggression: 0.75 }, { name: 'Felipe Castañeda',   nat: 'MEX', num: 33, team: 'monteverde', rating: 0.68, aggression: 0.7 },
+  { name: 'Arjun Mehta',        nat: 'IND', num: 19, team: 'halcyon', rating: 0.6, aggression: 0.35 },    { name: "Liam O'Rourke",      nat: 'IRL', num: 6,  team: 'halcyon', rating: 0.55, aggression: 0.6 },
+  { name: 'Emil Haugland',      nat: 'NOR', num: 24, team: 'ironvale', rating: 0.52, aggression: 0.5 },   { name: 'Carlos Medina',      nat: 'ARG', num: 14, team: 'ironvale', rating: 0.48, aggression: 0.75 },
+  { name: 'Yuto Saeki',         nat: 'JPN', num: 37, team: 'tempest', rating: 0.5, aggression: 0.4 },    { name: 'Samuel Achterberg',  nat: 'NLD', num: 5,  team: 'tempest', rating: 0.45, aggression: 0.55 },
 ];
 
 // ---------------------------------------------------------------------------

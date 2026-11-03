@@ -4,6 +4,13 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
+**Stand: Phase 3**
+- Testfahrt/Training: Sektorzeiten (lila/grün/gelb), Track Limits, Live-Delta, Ghost der Bestrunde,
+  Telemetrie (Runden vergleichen, CSV), Fahrzeug-Setup (19 Parameter, pro Strecke gespeichert)
+- Schnelles Rennen: bis zu 19 KI-Gegner auf derselben Fahrphysik, Startampel mit Frühstart-Erkennung,
+  Zeitenturm, Abstände, Windschatten/verwirbelte Luft, Überholmodus, Kollisionen, Schaden, Strafen, Ergebnis
+- Kameras: Cockpit, T-Cam, Nase, Verfolger nah/fern, TV-Regie
+
 ## Bauen
 
 ```bash
@@ -20,20 +27,28 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `20_data.js` | Teams, Fahrzeugdaten, Strecken (fiktiv) |
 | `30_track.js` | Streckenmodell (Spline, Höhen, Oberflächen) |
 | `40_physics.js` | Fahrzeugphysik, 360 Hz, Reifen, Antrieb, Aero, FFB-Moment |
+| `45_ai.js` | KI: Ideallinie (minimale Krümmung), Tempoprofil, Fahrer-Regler, Verkehr |
+| `47_race.js` | Zeitnahme, Track Limits, Kollisionen, Schaden, Rennablauf, Training, Ghost/Telemetrie-Aufzeichnung |
 | `50_input.js` | Tastatur, Gamepad, Lenkrad, Kalibrierung, Profile |
 | `55_ffb.js` | Force Feedback über WebHID (HID++ 2.0, Feature 0x8123) |
+| `58_engine_model.js` | Physikalisches Motorklang-Modell (AudioWorklet) |
 | `60_audio.js` | Klangsynthese |
-| `70`–`76` | Rendering, Strecke, Auto, Garage |
+| `70`–`78` | Rendering, Strecke, Auto, Garage, Ghost, TV-Kameras |
 | `80_ui.js` | Menüs, HUD, Einstellungen |
+| `82_ui_race.js` | Rennvorbereitung, Ergebnis, Setup, Telemetrie, Renn-HUD |
 | `90_game.js` | Ablaufsteuerung |
 
 ## Tests
 
 ```bash
 tools/run-pure.sh tests/physik/test_phys.js      # Physik ohne Browser (Node)
+tools/run-pure.sh tests/physik/test_ai.js        # KI allein: Rundenzeit, Abflüge
+tools/run-pure.sh tests/physik/test_race.js      # Rennen mit 19 KI-Autos (SEED=…, LAPS=…)
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
 node tests/browser/audio_test.js                 # Motorklang-Worklet
+node tests/browser/race_test.js                  # Schnelles Rennen bis zum Ergebnis
+node tests/browser/practice_test.js              # Phase 2: Setup, Sektoren, Ghost, Track Limits, Telemetrie
 node tests/audio/test_engine.js                  # Motorklang offline + WAV-Proben
 node tests/browser/ui_test.js
 node tests/browser/smoke_test.js

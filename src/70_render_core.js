@@ -452,8 +452,8 @@ const TIME_OF_DAY = {
 // ---------------------------------------------------------------------------
 //  Kameras: Cockpit (Kopfbewegung, Shake, Blick links/rechts/zurück), Verfolger nah/fern
 // ---------------------------------------------------------------------------
-const CAMERA_MODES = ['cockpit', 'tcam', 'chaseNear', 'chaseFar'];
-const CAMERA_NAMES = { cockpit: 'Cockpit', tcam: 'T-Cam', chaseNear: 'Verfolger nah', chaseFar: 'Verfolger fern' };
+const CAMERA_MODES = ['cockpit', 'tcam', 'nose', 'chaseNear', 'chaseFar', 'tv'];
+const CAMERA_NAMES = { cockpit: 'Cockpit', tcam: 'T-Cam', nose: 'Nasenkamera', chaseNear: 'Verfolger nah', chaseFar: 'Verfolger fern', tv: 'TV-Kamera' };
 
 class CameraRig {
   constructor(camera) {
@@ -474,7 +474,30 @@ class CameraRig {
     let wantLook = 0;
     if (opts.lookBack) wantLook = Math.PI; else if (opts.lookLeft) wantLook = Math.PI * 0.42; else if (opts.lookRight) wantLook = -Math.PI * 0.42;
     this.lookYaw = opts.lookBack ? wantLook : damp(this.lookYaw, wantLook, 12, dt);
-    if (this.mode === 'cockpit' || this.mode === 'tcam') {
+    if (this.mode === 'tv' && opts.tvSpots && opts.tvSpots.length && veh) {
+      // TV-Regie: nächste Kamera vor dem Auto, Umschalten kurz nachdem es vorbeigefahren ist
+      const S = opts.tvSpots, L = opts.trackLength, s = veh.trackS;
+      const rel = (sp) => { let d = sp.s - s; if (d < -L / 2) d += L; if (d > L / 2) d -= L; return d; };
+      if (this.tvIdx == null || rel(S[this.tvIdx]) < -45 || rel(S[this.tvIdx]) > 260) {
+        let best = 0, bd = 1e9;
+        S.forEach((sp, i) => { const d = rel(sp); if (d > -40 && d < bd) { bd = d; best = i; } });
+        this.tvIdx = best;
+      }
+      const sp = S[this.tvIdx];
+      cam.position.set(sp.x, sp.y, sp.z);
+      cam.up.set(0, 1, 0);
+      this.look.set(p.x, p.y + 0.4, p.z);
+      cam.lookAt(this.look);
+      const dist = cam.position.distanceTo(p);
+      cam.fov = clamp(2 * Math.atan(9 / Math.max(1, dist)) / DEG, 6, 55);
+      cam.near = 0.5;
+    } else if (this.mode === 'nose') {
+      const eye = this._v.set(0, 0.27, -2.38);   // vor der Vorderachse, über dem Frontflügel
+      cam.position.copy(eye).applyQuaternion(q).add(p);
+      this._e.set(-3 * DEG, this.lookYaw, 0, 'YXZ'); this._q.setFromEuler(this._e);
+      cam.quaternion.copy(q).multiply(this._q);
+      cam.fov = 74; cam.near = 0.05;
+    } else if (this.mode === 'cockpit' || this.mode === 'tcam') {
       const c = opts.cockpit;
       // Kopfbewegung durch Beschleunigungen (gedämpft)
       const aL = veh ? clamp(veh.accelLat / G0, -5, 5) : 0, aX = veh ? clamp(veh.accelLong / G0, -6, 6) : 0;

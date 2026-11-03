@@ -134,7 +134,7 @@ class Vehicle {
     this.trackIdx = -1; this.trackS = 0; this.lateral = 0;
     this.water = 0;           // Streckennässe 0…1 (Phase 5)
     this.trackGrip = 1.0;     // Gummiaufbau (Phase 2)
-    this.health = { fw: 1, rw: 1, floor: 1, susp: [1, 1, 1, 1] };   // Schaden (Phase 3)
+    this.health = { fw: 1, rw: 1, floor: 1, susp: [1, 1, 1, 1], toe: [0, 0, 0, 0], engine: 1 };   // Schaden: 1 = intakt
     this.slipstream = 0; this.dirtyAir = 0;                         // von der Rennlogik (Phase 3)
     this.applySetup(this.setup);
     this.resetState();
@@ -201,7 +201,7 @@ class Vehicle {
     this.time = 0; this.distance = 0;
     this.shiftDenied = 0; this.lastShiftTime = -10;
     this.events = [];   // {type, value} für Audio/UI
-    this.surfVib = 0; this.kerbVib = 0; this.offTrackWheels = 0;
+    this.surfVib = 0; this.kerbVib = 0; this.offTrackWheels = 0; this.limitWheels = 0;
   }
 
   setCompound(id, temp = 70) { for (const w of this.wheels) w.tyre.setCompound(id, temp); }
@@ -315,9 +315,10 @@ class Vehicle {
     const st = clamp(inp.steer, -1, 1);
     const d = st * spec.maxWheelAngleDeg * DEG;
     const ack = spec.ackermann;
-    W[0].steer = d * (d < 0 ? 1 + ack : 1 - ack * 0.5) + W[0].toe;
-    W[1].steer = d * (d > 0 ? 1 + ack : 1 - ack * 0.5) + W[1].toe;
-    W[2].steer = W[2].toe; W[3].steer = W[3].toe;
+    const dt = this.health.toe;   // verbogene Aufhängung → Spurfehler (zieht zur Seite)
+    W[0].steer = d * (d < 0 ? 1 + ack : 1 - ack * 0.5) + W[0].toe + dt[0];
+    W[1].steer = d * (d > 0 ? 1 + ack : 1 - ack * 0.5) + W[1].toe + dt[1];
+    W[2].steer = W[2].toe + dt[2]; W[3].steer = W[3].toe + dt[3];
 
     // Gas: Schaltvorgang, Fahrhilfen, Begrenzer
     let thr = clamp(inp.throttle, 0, 1);
@@ -393,7 +394,7 @@ class Vehicle {
     const ox = p.x + t.x, oy = p.y + t.y, oz = p.z + t.z;
     const g = ground.query(ox, oz, w.hint, w.hit);
     w.hint = g.i;
-    w.nx = g.nx; w.ny = g.ny; w.nz = g.nz; w.surf = g.surf; w.onTrack = g.onTrack;
+    w.nx = g.nx; w.ny = g.ny; w.nz = g.nz; w.surf = g.surf; w.onTrack = g.onTrack; w.edge = g.edge;   // edge > 0: jenseits der weißen Linie
     const c = up.x * g.nx + up.y * g.ny + up.z * g.nz;
     const hO = (oy - g.h) * g.ny;
     let L = c > 0.3 ? (hO - w.radius) / c : 1e9;
@@ -900,6 +901,7 @@ class Vehicle {
       this.impactTime = this.time;
       this.impactNormal.set(wn[0], 0, wn[1]);
       this.events.push({ type: 'impact', value: worst });
+      if (this.onImpact) this.onImpact(worst, wn[0], wn[1], 'wall');
     }
   }
 
@@ -917,7 +919,7 @@ class Vehicle {
     const ty = this.spec.tyre, spd = this.speed;
     const amb = ty.ambient - 8 * this.water, trackT = ty.track - 14 * this.water;
     const hConv = ty.hBase + ty.hVel * Math.sqrt(spd) + 40 * this.water;
-    let offTrack = 0, kerbVib = 0, vib = 0;
+    let offTrack = 0, kerbVib = 0, vib = 0, beyond = 0;
     for (const w of this.wheels) {
       const t = w.tyre, c = t.c;
       // Wärmeeintrag
@@ -957,6 +959,7 @@ class Vehicle {
       w.brakeMu = bt < 350 ? lerp(0.8, 1, smoothstep(60, 350, bt)) : (bt > 1050 ? lerp(1, 0.78, smoothstep(1050, 1300, bt)) : 1);
       // Vibration (für FFB/Kamera/Audio)
       const sd = SURFACES[w.surf];
+      if (w.edge > 0) beyond++;
       if (w.contact) {
         if (sd.offTrack) offTrack++;
         if (sd.kerb) kerbVib = Math.max(kerbVib, (w.surf === SURF.KERB_SAW ? 1 : (w.surf === SURF.SAUSAGE ? 0.9 : 0.5)) * smoothstep(2, 15, Math.abs(w.vx)));
@@ -964,6 +967,7 @@ class Vehicle {
       }
     }
     this.offTrackWheels = offTrack;
+    this.limitWheels = beyond;            // Track Limits: alle 4 Räder jenseits der weißen Linie
     this.kerbVib = kerbVib;
     this.surfVib = clamp(vib, 0, 1);
   }

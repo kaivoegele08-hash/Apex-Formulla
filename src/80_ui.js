@@ -98,7 +98,8 @@ const UI = {
       h('div.brand', 'APEX ', h('b', 'FORMULA')),
       h('div.brand-sub', 'World Championship'),
       h('div.menu',
-        btn('Testfahrt / Fahrschule', () => this.show('drive'), 'primary', '▶'),
+        btn('Schnelles Rennen', () => this.show('raceSetup'), 'primary', '▶'),
+        btn('Testfahrt / Training', () => this.show('drive')),
         btn('Lenkrad kalibrieren', () => this.openWizard()),
         btn('Eingabetest', () => this.show('inputTest')),
         btn('Einstellungen', () => this.show('settings')),
@@ -146,9 +147,11 @@ const UI = {
             fieldRow('Schalten', toggle([{ value: false, label: 'Manuell' }, { value: true, label: 'Automatisch' }], S.aids.autoShift, v => { S.aids.autoShift = v; Game.saveSettings(); })),
             fieldRow('Aktive Aero', toggle([{ value: true, label: 'Automatisch' }, { value: false, label: 'Manuell' }], S.aids.aeroAuto, v => { S.aids.aeroAuto = v; Game.saveSettings(); })),
           ),
-          h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; Game.saveSettings(); })),
+          h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.filter(m => m !== 'tv').map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; Game.saveSettings(); })),
+          h('div.card', h('h3', 'Ghost'), fieldRow('Bestrunde als Ghost', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], S.game.ghost !== false, v => { S.game.ghost = v; Game.saveSettings(); })),
+            h('p', { style: { fontSize: '12px' } }, (Save.get('bestLaps', {})['ringpark'] ? `Gespeicherte Bestzeit: ${fmtTime(Save.get('bestLaps', {})['ringpark'].time)}` : 'Noch keine Bestzeit gespeichert.'))),
           h('div.hint', 'In der Testfahrt ist der ', h('b', 'Überholmodus'), ' einmal pro Runde frei verfügbar (sonst nur innerhalb 1 s hinter dem Vordermann am Erkennungspunkt).'),
-          h('div.actions', btn('Losfahren', () => Game.startTestDrive(), 'primary', '▶'), btn('Zurück', () => this.back(), 'ghost')),
+          h('div.actions', btn('Losfahren', () => Game.startTestDrive(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
         ),
       ),
     );
@@ -158,25 +161,29 @@ const UI = {
   //  Pause
   // ---------------------------------------------------------------------------
   scr_pause() {
-    const S = Game.settings;
+    const S = Game.settings, race = Game.mode === 'race';
     const reason = Game.pauseReason || '';
     // Hinweis: Esc kam als Tastendruck, obwohl mit dem Lenkrad gefahren wurde → vermutlich Steam Input
     const steamHint = Game.pauseWhileWheel && /^Taste /.test(reason);
+    const me = race && Game.race ? Game.race.player : null;
     return h('section.screen',
-      h('header', h('span.crumb', 'Pause'), h('h1', 'Testfahrt')),
+      h('header', h('span.crumb', 'Pause'), h('h1', race ? `Rennen · P${me ? me.pos : '-'} · Runde ${me ? Math.min(Game.race.laps, Math.max(1, me.timing.lap)) : 1}/${Game.race ? Game.race.laps : '-'}` : 'Testfahrt')),
       reason ? h('div.hint', { style: { maxWidth: '640px' } }, 'Pausiert durch: ', h('b', reason),
         steamHint ? h('div', { style: { marginTop: '6px' } }, 'Du bist mit dem Lenkrad gefahren, die Pause kam aber als Tastendruck. Falls du die Taste nicht gedrückt hast, wandelt vermutlich ', h('b', 'Steam Input'), ' Lenkradknöpfe in Tastatureingaben um (unter Bazzite läuft Steam im Hintergrund) – siehe Hilfe.') : null) : null,
       h('div.menu',
         btn('Fortsetzen', () => Game.resume(), 'primary', 'Esc'),
-        btn('Auto zurücksetzen', () => { Game.resetCar(); Game.resume(); }, '', 'R'),
+        race ? null : btn('Auto zurücksetzen', () => { Game.resetCar(); Game.resume(); }, '', 'R'),
+        race ? null : btn('Fahrzeug-Setup', () => this.show('setup')),
+        btn('Telemetrie', () => this.show('telemetry')),
         btn('Einstellungen', () => this.show('settings')),
         btn('Lenkrad kalibrieren', () => this.openWizard()),
-        btn('Eingabetest', () => this.show('inputTest')),
         btn('Hilfe & Steuerung', () => this.show('help')),
-        btn('Zum Hauptmenü', () => Game.toMenu(), 'ghost'),
+        race ? btn('Rennen neu starten', () => this.confirm('Rennen neu starten?', () => Game.startRace()), 'ghost') : null,
+        btn(race ? 'Rennen aufgeben' : 'Zum Hauptmenü', () => race ? this.confirm('Rennen aufgeben und zum Hauptmenü?', () => Game.toMenu()) : Game.toMenu(), 'ghost'),
       ),
-      h('div.card', { style: { marginTop: '22px', maxWidth: '640px' } }, h('h3', 'Neue Reifen aufziehen'),
-        chips(COMPOUND_ORDER.map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.vehicle ? Game.vehicle.compound : S.game.compound, v => { S.game.compound = v; Game.saveSettings(); Game.fitTyres(v); this.toast(`Neue Reifen: ${COMPOUNDS[v].name}`); })),
+      race ? (me ? h('div.card', { style: { marginTop: '22px', maxWidth: '640px' } }, h('h3', 'Fahrzeugzustand'), h('p', 'Schaden: ' + Damage.summary(me.vehicle)), h('p', `Track-Limits-Verwarnungen: ${me.warnings} · Strafen: ${me.penalty ? '+' + me.penalty + ' s' : 'keine'}`)) : null)
+        : h('div.card', { style: { marginTop: '22px', maxWidth: '640px' } }, h('h3', 'Neue Reifen aufziehen'),
+          chips(COMPOUND_ORDER.map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.vehicle ? Game.vehicle.compound : S.game.compound, v => { S.game.compound = v; Game.saveSettings(); Game.fitTyres(v); this.toast(`Neue Reifen: ${COMPOUNDS[v].name}`); })),
     );
   },
 
@@ -197,6 +204,14 @@ const UI = {
           keyRow('lookLeft', 'Blick links'), keyRow('lookRight', 'Blick rechts'), keyRow('reset', 'Auto zurücksetzen'), keyRow('inputOverlay', 'Eingabe-Overlay / FFB-Graph'),
           keyRow('hud', 'HUD ein/aus'), keyRow('pause', 'Pause'))),
         h('div.col',
+          h('div.card', h('h3', 'Rennen & Regeln'),
+            h('p', '• ', h('b', 'Start:'), ' Fünf rote Lichter gehen im Sekundentakt an; wenn alle erlöschen, geht es los. Bis dahin hält das Spiel dein Auto über die Kupplung – Gas geben zum Vorbereiten ist erlaubt (mit Traktionskontrolle Vollgas, ohne lieber dosiert).'),
+            h('p', '• ', h('b', 'Track Limits:'), ' Sind alle vier Räder jenseits der weißen Linie, ist die Runde ungültig. Im Rennen gibt es 3 Verwarnungen, danach je 5 s Zeitstrafe.'),
+            h('p', '• ', h('b', 'Windschatten'), ' bis ca. 60 m hinter einem Auto senkt den Luftwiderstand; ', h('b', 'verwirbelte Luft'), ' dicht dahinter kostet Abtrieb. ', h('b', 'Überholmodus'), ' gibt es, wenn du am Erkennungspunkt weniger als 1 s hinter dem Vordermann liegst.'),
+            h('p', '• ', h('b', 'Schaden:'), ' Treffer beschädigen Front-/Heckflügel (weniger Abtrieb), Unterboden und Aufhängung (Auto zieht zur Seite). Zustand im MFD.'),
+            h('p', '• ', h('b', 'Sektoren:'), ' lila = Allzeit-Bestwert, grün = persönliche Bestzeit der Sitzung, gelb = langsamer.'),
+            h('p', '• ', h('b', 'Kameras:'), ' Cockpit, T-Cam, Nase, Verfolger nah/fern, TV-Kamera (Taste für Kamerawechsel).'),
+          ),
           h('div.card', h('h3', 'Lenkrad unter Linux (z. B. Bazzite)'),
             h('p', '• Das Lenkrad muss vom System erkannt werden (Kernel-Treiber, z. B. hid-logitech-hidpp, hid-tmff2, hid-fanatecff bzw. universal-pidff für Direct-Drive-Basen).'),
             h('p', '• Den Rotationsbereich stellst du mit ', h('b', 'Oversteer'), ' (oder der Software des Herstellers) ein – ideal sind ', h('b', '360°'), ' für 1:1-Lenkung. Andernfalls trage den eingestellten Wert im Lenkradprofil ein.'),
@@ -858,7 +873,7 @@ const UI = {
     this._cls('slipR', 'y', sR > 0.85 && sR <= 1.15 && !lockR); this._cls('slipR', 'r', sR > 1.15 || lockR);
     // Rundenzeiten
     if (sess) {
-      this._txt('hudLapNo', String(sess.lap));
+      if (sess.kind !== 'race') this._txt('hudLapNo', String(sess.lap));
       this._txt('hudTime', fmtTime(sess.lapTime));
       this._txt('hudLast', fmtTime(sess.lastLap)); this._txt('hudBest', fmtTime(sess.bestLap));
       const d = sess.delta;
@@ -870,7 +885,7 @@ const UI = {
       else if (sess.lapValid && this.hudCache.inv !== false) { this.hudCache.inv = false; $('hudTime').style.color = ''; }
     }
     // Minikarte
-    if (minimap && this.mapT > 1 / 15) { this.mapT = 0; minimap.draw(this.mapCtx, [{ x: veh.pos.x, z: veh.pos.z, color: TEAMS.find(t => t.id === Game.settings.game.team).colors[0], player: true }]); }
+    if (minimap && this.mapT > 1 / 15) { this.mapT = 0; minimap.draw(this.mapCtx, Game.mapCars()); }
     // Eingabe-Overlay
     if (!$('inputOverlay').classList.contains('hidden')) {
       const st = Input.state, set = (id, v, c) => { const i = $(id).firstChild; if (c) { const w = Math.abs(v) * 50; i.style.left = (v < 0 ? 50 - w : 50) + '%'; i.style.width = w + '%'; } else i.style.width = (v * 100) + '%'; };
@@ -900,7 +915,7 @@ const UI = {
       <div class="ln"><span>Bremsen °C</span><b>${W.map(w => Math.round(w.brakeTemp)).join('/')}</b></div>
       <div class="ln"><span>Fahrhöhe v/h</span><b>${Math.round(veh.rideF * 1000)} / ${Math.round(veh.rideR * 1000)} mm</b></div>
       <div class="ln"><span>TC / ABS</span><b>${['Aus', 'Mittel', 'Voll'][veh.aids.tc]} / ${veh.aids.abs ? 'An' : 'Aus'}</b></div>
-      <div class="ln"><span>Schaden</span><b>keiner</b></div>`;
+      <div class="ln"><span>Schaden</span><b>${Damage.summary(veh)}</b></div>`;
     if (this.hudCache.mfd !== html) { this.hudCache.mfd = html; $('hudMfd').innerHTML = html; }
   },
   updateFps(dt, show, graph) {
