@@ -1,0 +1,30 @@
+APEX FORMULA – Formel-Rennsimulation im Browser
+================================================
+
+START
+  apex-formula.html im Browser öffnen (Doppelklick). Empfohlen: Chrome, Chromium,
+  Edge oder Brave (Force Feedback braucht WebHID – das hat Firefox nicht).
+  Beim ersten Start wird Three.js aus dem Internet geladen.
+
+LENKRAD (Logitech G920 u. a.)
+  1. Lenkrad anschließen, im Spiel einen Knopf am Lenkrad drücken.
+  2. Einstellungen → Lenkrad & Pedale → Kalibrierungsassistent.
+  3. Force Feedback: im selben Reiter „Lenkrad verbinden“ → G920 auswählen.
+     „Testkraft“: das Lenkrad muss zuerst nach RECHTS, dann nach links ziehen.
+     Sonst „Richtung umkehren“ einschalten.
+  4. „Bereich 360° setzen“ ergibt exakte 1:1-Lenkung.
+
+LINUX / BAZZITE
+  Meldet der Browser beim Verbinden „Zugriff verweigert“, einmalig im Terminal:
+      ./apex-formula-ffb-einrichten.sh
+  Danach Lenkrad neu einstecken und Browser neu starten.
+
+MENÜ ÖFFNET SICH BEIM FAHREN?
+  Das Pausemenü zeigt jetzt den Auslöser („Pausiert durch: …“).
+  Steht dort „Taste Esc“, obwohl du nichts gedrückt hast, wandelt Steam Input
+  Lenkradknöpfe in Tastendrücke um: Steam → Einstellungen → Controller →
+  Desktop-Konfiguration für das Lenkrad deaktivieren.
+  Die automatische Pause beim Fensterwechsel lässt sich unter
+  Einstellungen → Allgemein & Daten abschalten.
+
+Alle Teams, Fahrer, Strecken und Marken im Spiel sind frei erfunden.

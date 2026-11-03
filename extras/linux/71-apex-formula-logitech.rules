@@ -1,0 +1,7 @@
+# Apex Formula – Force Feedback im Browser (WebHID) für Logitech-Lenkräder.
+# Gibt dem angemeldeten Benutzer Zugriff auf /dev/hidraw* dieser Geräte (sonst „Zugriff verweigert“).
+# G920 (c262), G923 Xbox/PC (c26e), G923 PS/PC (c266), G29 (c24f)
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c262", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c26e", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c266", TAG+="uaccess"
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c24f", TAG+="uaccess"
