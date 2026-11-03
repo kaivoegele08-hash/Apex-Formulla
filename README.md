@@ -4,7 +4,9 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
-**Stand: Phase 3**
+**Stand: Phase 3+**
+- Zwei Strecken: Kurstadt Ringpark und Falkenried-Ring (nach einer Skizze des Spielers, Mittellinie aus der Zeichnung extrahiert)
+- Fahrhilfe Ideallinie (grün/gelb/rot nach eigenem Tempo); KI verteidigt, greift an, hält im Zweikampf Abstand, Stärke bis 110 %
 - Testfahrt/Training: Sektorzeiten (lila/grün/gelb), Track Limits, Live-Delta, Ghost der Bestrunde,
   Telemetrie (Runden vergleichen, CSV), Fahrzeug-Setup (19 Parameter, pro Strecke gespeichert)
 - Schnelles Rennen: bis zu 19 KI-Gegner auf derselben Fahrphysik, Startampel mit Frühstart-Erkennung,
@@ -43,12 +45,14 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 ```bash
 tools/run-pure.sh tests/physik/test_phys.js      # Physik ohne Browser (Node)
 tools/run-pure.sh tests/physik/test_ai.js        # KI allein: Rundenzeit, Abflüge
-tools/run-pure.sh tests/physik/test_race.js      # Rennen mit 19 KI-Autos (SEED=…, LAPS=…)
+tools/run-pure.sh tests/physik/test_race.js      # Rennen mit 19 KI-Autos (TRACK=…, SEED=…, LAPS=…, OFF=defend,door,…)
+tools/run-pure.sh tests/physik/test_duel.js      # Zweikampf: KI verteidigt gegen schnelleren „Spieler“
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
 node tests/browser/audio_test.js                 # Motorklang-Worklet
 node tests/browser/race_test.js                  # Schnelles Rennen bis zum Ergebnis
 node tests/browser/practice_test.js              # Phase 2: Setup, Sektoren, Ghost, Track Limits, Telemetrie
+node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, Rennstart
 node tests/audio/test_engine.js                  # Motorklang offline + WAV-Proben
 node tests/browser/ui_test.js
 node tests/browser/smoke_test.js

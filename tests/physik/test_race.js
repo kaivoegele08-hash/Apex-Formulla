@@ -1,6 +1,7 @@
 // Rennen mit vollem KI-Feld: Start, Kollisionen, Schaden, Positionen, Zielflagge, Rechenzeit
 const h = PHYS_DT;
-const T = new TrackModel(TRACKS.ringpark), line = new RacingLine(T);
+for (const k of (process.env.OFF || '').split(',').filter(Boolean)) AI_TUNE[k] = false;
+const T = new TrackModel(TRACKS[process.env.TRACK || 'ringpark']), line = new RacingLine(T);
 let seed = +(process.env.SEED || 12345); const rng = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
 const LAPS = +(process.env.LAPS || 3), SIZE = +(process.env.SIZE || 20);
 const field = buildField({ playerTeam: 'aurora', size: SIZE, rng }).filter(e => !e.player);

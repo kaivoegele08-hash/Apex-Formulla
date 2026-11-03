@@ -1,6 +1,6 @@
 // KI allein auf der Strecke: Rundenzeit, Abflüge, Einschläge je Fähigkeitsstufe
 const h = PHYS_DT;
-const T = new TrackModel(TRACKS.ringpark);
+const T = new TrackModel(TRACKS[(typeof process !== 'undefined' && process.env.TRACK) || 'ringpark']);
 const t0 = performance.now();
 const line = new RacingLine(T);
 console.log(`Ideallinie: ${(performance.now() - t0).toFixed(0)} ms, max |Ablage| ${Math.max(...line.off.map(Math.abs)).toFixed(1)} m, Profil-Rundenzeit ${fmtTime(line.profile(1).lapTime)} (Mittellinie-Referenz ${fmtTime(T.refLapTime)})`);

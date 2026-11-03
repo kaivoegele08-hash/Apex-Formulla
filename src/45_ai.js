@@ -14,6 +14,9 @@ const AI_LIMITS = {
   power: 600000, mass: 800, drag: 0.0011,           // wirksame Leistung/Luftwiderstand (Vmax ≈ 317 km/h)
 };
 
+/** Schalter für Verhaltensweisen (Tests/Feinabstimmung) */
+const AI_TUNE = { draft: true, defend: true, door: true, lateBrake: true };
+
 class RacingLine {
   /** margin = Abstand der Fahrzeugmitte zur weißen Linie (m) */
   constructor(track, { margin = 1.05 } = {}) {
@@ -103,7 +106,7 @@ class RacingLine {
 function makeAIProfile(driver, strength = 1, rng = Math.random) {
   const base = driver.rating != null ? driver.rating : 0.5;              // 0…1
   return {
-    skill: clamp((0.94 + 0.06 * base) * strength, 0.80, 1.0),
+    skill: clamp((0.955 + 0.045 * base) * strength, 0.80, 1.0),
     aggression: clamp(0.35 + 0.5 * (driver.aggression ?? rng()), 0, 1),
     consistency: clamp(0.6 + 0.35 * base + (rng() - 0.5) * 0.1, 0.3, 0.98),
     reaction: 0.17 + (1 - base) * 0.12 + rng() * 0.08,
@@ -113,10 +116,11 @@ function makeAIProfile(driver, strength = 1, rng = Math.random) {
 class AIDriver {
   constructor(vehicle, line, prof, seed = 1) {
     this.v = vehicle; this.line = line; this.prof = prof;
-    this.speedProf = line.profile(prof.skill);
+    this.speedProf = line.profile(prof.skill * (vehicle.trackGrip || 1));
     this.latOff = 0; this.latWant = 0; this.passSide = 0; this.passT = 0;
     this.thr = 0; this.seed = seed;
     this.trafT = 0; this.leader = null; this.followV = Infinity; this.blue = false; this.yieldF = 1; this.startLat = null; this.dmgF = 1; this.passCool = 0;
+    this.chaser = null; this.chaserDs = -1e9; this.latMin = -1e9; this.latMax = 1e9; this.defendSide = 0; this.defendJ = 0; this.doorUsed = false; this.doorT = 0; this.doorLat = 0;
     this.stuckT = 0; this.wrongT = 0; this.needsReset = false;
     this.launchAt = -Infinity; this.state = 'drive';
     this.debug = { vt: 0, la: 0 };
@@ -132,7 +136,8 @@ class AIDriver {
   /** Verkehr analysieren (≈30 Hz): Vordermann, Nebenleute, blaue Flagge */
   _traffic(cars, me, time) {
     const v = this.v, line = this.line, T = line.track, L = T.length, N = T.N;
-    let lead = null, leadDs = 1e9, blue = false, push = 0, alongBehind = false, along = 0, emergency = Infinity;
+    const j0self = v.trackIdx;
+    let lead = null, leadDs = 1e9, blue = false, push = 0, alongBehind = false, along = 0, emergency = Infinity, chaser = null, chaserDs = -1e9, tight = false, latMin = -1e9, latMax = 1e9;
     for (const c of cars) {
       if (c === me || c.retired || !c.vehicle || c.active === false) continue;
       const o = c.vehicle;
@@ -141,32 +146,51 @@ class AIDriver {
       const dl = o.lateral - v.lateral;
       // geplante eigene Querposition an der Stelle des anderen (Linie + Versatz)
       const lo = line.off[o.trackIdx];
-      const inLane = Math.abs(dl) < 2.55 || (ds > 6 && (Math.abs(o.lateral - (lo + this.latOff)) < 2.4 || Math.abs(o.lateral - (lo + this.latWant)) < 2.4));
+      let inLane = Math.abs(dl) < 2.55 || (ds > 6 && (Math.abs(o.lateral - (lo + this.latOff)) < 2.4 || Math.abs(o.lateral - (lo + this.latWant)) < 2.4));
+      // eigene geplante Linie über die nächsten Meter (Einlenken!) gegen die Position des anderen prüfen
+      if (!inLane && ds > 0 && ds < 70) {
+        for (let q = Math.floor(ds / T.ds); q < (ds + 45) / T.ds; q += 3) {
+          if (Math.abs(o.lateral - (line.off[(j0self + q) % N] + this.latOff)) < 2.3) { inLane = true; break; }
+        }
+      }
       // Notbremsung: dicht dahinter und schnell aufschließend
       if (ds > 0 && ds < 22 && Math.abs(dl) < 2.5 && v.vLong - o.vLong > 2.5) emergency = Math.min(emergency, Math.max(0, o.vLong - 1 + (ds - 7) * 0.4));
       if (ds > 0 && ds < 85 && inLane && ds < leadDs) { lead = c; leadDs = ds; }
+      // Angreifer hinter mir (der Spieler wird früher beachtet)
+      const range = c.player ? 40 : 30;
+      if (ds < -1.5 && ds > -range && Math.abs(dl) < 5 && ds > chaserDs && !(me && c.distance - me.distance > L * 0.5)) { chaser = c; chaserDs = ds; }
       // Nebeneinander: seitlichen Abstand halten
-      if (Math.abs(ds) < 6.2 && Math.abs(dl) < 3.3) {
-        push += (dl > 0 ? -1 : 1) * (3.3 - Math.abs(dl));
+      if (Math.abs(ds) < 6.2 && Math.abs(dl) < 3.4) {
+        push += (dl > 0 ? -1 : 1) * (3.4 - Math.abs(dl));
         along++; if (ds > 1.2) alongBehind = true;
+        // zu eng nebeneinander: wer hinten liegt bzw. angreift, nimmt Gas weg
+        if (Math.abs(dl) < 2.6 && (ds > 0.8 || (this.passSide && ds > -1.5))) tight = true;
+        // harte Grenze: nie seitlich in ein Auto neben mir hineinlenken (auch nicht beim Einlenken zur Ideallinie)
+        if (Math.abs(ds) < 6.5) { if (dl > 0) latMax = Math.min(latMax, o.lateral - 2.9); else latMin = Math.max(latMin, o.lateral + 2.9); }
       }
       if (ds < 0 && ds > -45 && me && me.distance != null && c.distance - me.distance > L * 0.5 && o.vLong > v.vLong - 2) blue = true;
     }
     this.leader = lead; this.leadDs = leadDs; this.blue = blue; this.along = along;
+    this.latMin = latMin; this.latMax = latMax; this.chaser = chaser; this.chaserDs = chaserDs;
     const P = this.prof, j = v.trackIdx, lineOff = line.off[j];
     if (lead) {
       const o = lead.vehicle, closing = v.vLong - o.vLong;
-      const faster = this.speedProf.pred[j] > (lead.ai ? lead.ai.speedProf.pred[o.trackIdx] : o.vLong) * 0.995 || closing > 1.5;
+      const faster = lead.ai ? (this.speedProf.pred[j] > lead.ai.speedProf.pred[o.trackIdx] * 0.995 || closing > 1.5) : (closing > 0.4 || leadDs < 16);
+      const aggr = clamp(P.aggression + (lead.player ? 0.25 : 0), 0, 1);
       // Kurve voraus? Dann nur weiter angreifen, wenn schon neben dem Vordermann
       let kAhead = 0; for (let q = 4; q < 20 + v.vLong * 0.5; q += 4) kAhead = Math.max(kAhead, Math.abs(line.K[(j + q) % N]));
       if (this.passSide && kAhead > 0.0075 && leadDs > 4.5) { this.passSide = 0; this.passCool = 1.2; }
-      if (leadDs < 20 + 20 * P.aggression && faster && time - this.launchAt > 6 && this.passCool <= 0 && !(kAhead > 0.0075 && leadDs > 4.5)) {
-        if (!this.passSide || this.passT > 7) {
+      const strikeDist = kAhead > 0.004 ? 20 + 22 * aggr : 11 + 6 * aggr;
+      if (leadDs < strikeDist && faster && time - this.launchAt > 6 && this.passCool <= 0 && !(kAhead > 0.0075 && leadDs > 4.5)) {
+        if (!this.passSide || (this.passT > 7 && leadDs > 14)) {
           let kSum = 0; for (let q = 5; q < 75; q += 5) kSum += line.K[(j + q) % N];
           let want = kSum > 0.002 ? 1 : (kSum < -0.002 ? -1 : (v.lateral > o.lateral ? 1 : -1));
           const room = (sgn) => { const jj = (o.trackIdx + 3) % N; return T.HW[jj] - 1.1 - sgn * o.lateral; };
-          if (room(want) < 2.8) want = -want;
-          this.passSide = room(want) >= 2.8 ? want : 0; this.passT = 0;
+          // schon seitlich versetzt? Dann auf dieser Seite bleiben – nie hinter/durch den Gegner die Seite wechseln
+          const curSide = Math.abs(v.lateral - o.lateral) > 0.9 ? Math.sign(v.lateral - o.lateral) : 0;
+          if (curSide && (leadDs < 14 || room(want) < 2.8)) want = curSide;
+          if (room(want) < 2.8) want = curSide ? 0 : -want;
+          this.passSide = want && room(want) >= 2.8 ? want : 0; this.passT = 0;
         }
       } else if (leadDs > 45) this.passSide = 0;
       // Folgen: Anhalteweg zum Vordermann (dessen Verzögerung vorweggenommen)
@@ -180,16 +204,43 @@ class AIDriver {
     this.followV = Math.min(this.followV, emergency);
     // Ziel-Querablage relativ zur Ideallinie
     let want = 0;
-    if (this.passSide && lead) want = (lead.vehicle.lateral + this.passSide * 3.1) - lineOff;
+    // Bremszone voraus: Profiltempo fällt innerhalb von 150 m um > 20 %
+    let vMinAhead = 1e9; for (let q = 5; q < 75; q += 3) vMinAhead = Math.min(vMinAhead, this.speedProf[(j + q) % N]);
+    const brakeZone = vMinAhead < this.speedProf[j] * 0.8;
+    // Kurve voraus (25–110 m): Richtung und Stärke
+    let kSum = 0, kMax = 0; for (let q = 12; q < 55; q += 3) { const k = line.K[(j + q) % N]; kSum += k; kMax = Math.max(kMax, Math.abs(k)); }
+    const cornerSoon = kMax > 0.006, inside = kSum > 0 ? 1 : -1;
+    if (this.passSide && lead) want = (lead.vehicle.lateral + this.passSide * 3.4) - lineOff;
+    // Windschatten: auf der Geraden direkt hinter dem Vordermann bleiben
+    else if (AI_TUNE.draft && lead && !cornerSoon && leadDs > 8 && leadDs < 50 && v.vLong > 45) want = lead.vehicle.lateral - lineOff;
+    // Verteidigen: Innenseite vor der Kurve zudecken (ein Spurwechsel je Kurve), Tür auf der Geraden einmal schließen
+    const threat = chaser && chaserDs > -18 && (chaser.vehicle.vLong > v.vLong + 0.8 || (chaser.ai && chaser.ai.passSide) || (chaser.player && chaserDs > -14));
+    const defends = AI_TUNE.defend && threat && !this.passSide && !this.blue && time - this.launchAt > 8 && (chaser.player || P.aggression > 0.4);
+    if (defends) {
+      const cv = chaser.vehicle, dlC = cv.lateral - v.lateral;
+      // nur wenn der Angreifer noch nicht innen liegt und genug Abstand ist
+      if (brakeZone && cornerSoon && chaserDs < -8 && dlC * inside < 0.8 && (this.defendSide === 0 || ((j - this.defendJ + N) % N) > 90)) { this.defendSide = inside; this.defendJ = j; }
+      if (AI_TUNE.door && !cornerSoon && !this.doorUsed && chaserDs < -10 && chaserDs > -20 && Math.abs(dlC) > 1.8 && Math.abs(dlC) < 3.5) { this.doorLat = v.lateral + Math.sign(dlC) * 1.2; this.doorUsed = true; this.doorT = 2.0; }
+    }
+    if (!chaser || chaserDs < -45) this.doorUsed = false;
+    if (this.defendSide && along) this.defendSide = 0;
+    if (this.doorT > 0 && along) this.doorT = 0;
+    if (this.defendSide && ((j - this.defendJ + N) % N) < 90) want = this.defendSide * (T.HW[j] - 3.0) - lineOff;
+    else this.defendSide = 0;
+    if (this.doorT > 0) want = this.doorLat - lineOff;
     if (this.blue) want = (lineOff > 0 ? -1 : 1) * 3.2;
     // Start: eigene Spur halten, dann über einige Sekunden zur Ideallinie einscheren
     const tl = time - this.launchAt;
     if (this.startLat != null && tl < 11) { const w = clamp(1 - (tl - 4) / 7, 0, 1); want = lerp(want, this.startLat - lineOff, w); }
     want += push * 1.0;
-    const hw = T.HW[j] - 1.05, raw = lineOff + want, cl = clamp(raw, -hw, hw);
+    const hw = T.HW[j] - 1.05;
+    let raw = lineOff + want;
+    const squeezed = latMin > latMax || latMin > hw || latMax < -hw;
+    if (!squeezed) raw = clamp(raw, latMin, latMax);
+    const cl = clamp(raw, -hw, hw);
     this.latWant = cl - lineOff;
     // eingeklemmt (kein Platz zum Ausweichen) oder hinten in einer Kurve nebeneinander → nachgeben
-    this.yieldF = (along && Math.abs(raw - cl) > 0.4) || (alongBehind && Math.abs(line.K[(j + 15) % N]) > 0.004) ? 0.94 : 1;
+    this.yieldF = tight || squeezed ? 0.92 : (along && Math.abs(raw - cl) > 0.4) || (alongBehind && Math.abs(line.K[(j + 15) % N]) > 0.004) ? 0.94 : along ? 0.97 : 1;
   }
 
   /** Pro Physikschritt: Eingaben setzen. ctx = { cars, me, state: 'grid'|'race'|'free', time } */
@@ -201,14 +252,17 @@ class AIDriver {
       inp.steer = 0; inp.brake = ctx.state === 'grid' ? 1 : 0.6; inp.throttle = ctx.state === 'grid' ? 0.35 : 0.4; inp.clutch = 0;
       return;
     }
-    this.trafT -= h; this.passT += h; this.passCool -= h;
+    this.trafT -= h; this.passT += h; this.passCool -= h; this.doorT -= h;
     if (this.trafT <= 0) { this.trafT = 1 / 30; this._traffic(ctx.cars || [], ctx.me, ctx.time); this._damageCheck(); }
     const lr = this.along ? 5 : 3; this.latOff += clamp(this.latWant - this.latOff, -h * lr, h * lr);
     const spd = Math.max(4, v.vLong), j = v.trackIdx;
     // Spurführung: Pure Pursuit auf Ideallinie + Querversatz
     const La = 7.5 + 0.27 * spd;
     const fs = v.trackS + La, jf = (fs / T.ds), j0 = Math.floor(jf) % N, j1 = (j0 + 1) % N, fr = jf - Math.floor(jf);
-    const hwT = T.HW[j0] - 1.05, lo = clamp(lerp(line.off[j0], line.off[j1], fr) + this.latOff, -hwT, hwT);
+    const hwT = T.HW[j0] - 1.05;
+    let lo = lerp(line.off[j0], line.off[j1], fr) + this.latOff;
+    if (this.latMin <= this.latMax) lo = clamp(lo, this.latMin, this.latMax);
+    lo = clamp(lo, -hwT, hwT);
     const tx = lerp(T.X[j0], T.X[j1], fr) + T.RX[j0] * lo, tz = lerp(T.Z[j0], T.Z[j1], fr) + T.RZ[j0] * lo;
     const dx = tx - v.pos.x, dz = tz - v.pos.z;
     const lx = dx * v._right.x + dz * v._right.z, lz = dx * v._fwd.x + dz * v._fwd.z;
@@ -222,6 +276,8 @@ class AIDriver {
     const kAbs = Math.abs(line.K[jt]);
     if (kAbs > 0.004) vt *= 1 - clamp(Math.abs(this.latOff) * 0.012, 0, 0.06) - 0.025 * v.dirtyAir;
     if (this.blue) vt *= 0.97;
+    // Ausbremsen: innen neben dem Gegner etwas später bremsen
+    if (AI_TUNE.lateBrake && this.passSide && this.leader && this.leadDs < 5 && kAbs > 0.004 && Math.sign(line.K[jt]) === this.passSide) vt *= 1.012;
     vt *= this.yieldF;
     vt = Math.min(vt, this.followV);
     if (ctx.cap) vt = Math.min(vt, ctx.cap);
@@ -249,7 +305,7 @@ class AIDriver {
   _damageCheck() {
     const H = this.v.health;
     const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * 100) / 100;
-    if (f !== this.dmgF) { this.dmgF = f; this.speedProf = this.line.profile(this.prof.skill * f); }
+    if (f !== this.dmgF) { this.dmgF = f; this.speedProf = this.line.profile(this.prof.skill * f * (this.v.trackGrip || 1)); }
   }
   resetAfterRecovery() { this.stuckT = 0; this.wrongT = 0; this.needsReset = false; this.thr = 0; this.latOff = 0; this.passSide = 0; }
 }

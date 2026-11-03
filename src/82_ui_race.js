@@ -31,15 +31,16 @@ Object.assign(UI, {
   // ---------------------------------------------------------------------------
   scr_raceSetup() {
     const S = Game.settings, R = S.race;
-    const track = Game.getTrackModel('ringpark');
+    const track = Game.getTrackModel(Game.trackId);
     const map = new Minimap(track, 230);
     const cv = h('canvas', { width: 230, height: 230 }); cv.getContext('2d').drawImage(map.bg, 0, 0);
     const full = track.def.raceLaps || 50;
     const save = () => Game.saveSettings();
     const lapsOpts = [3, 5, 10, 15, 20, Math.round(full / 2), full].filter((x, i, a) => a.indexOf(x) === i).sort((a, b) => a - b);
-    const strength = slider('KI-Stärke', R.strength, 0.85, 1.05, 0.01, v => { R.strength = v; save(); }, v => Math.round(v * 100) + ' %' + (v >= 1.0 ? ' (Legende)' : v >= 0.97 ? ' (Profi)' : v >= 0.92 ? ' (Fortgeschritten)' : ' (Einsteiger)'));
+    const strength = slider('KI-Stärke', R.strength, 0.85, 1.10, 0.01, v => { R.strength = v; save(); }, v => Math.round(v * 100) + ' %' + (v > 1.0 ? ' (Legende – mehr Grip als möglich)' : v >= 0.98 ? ' (Profi)' : v >= 0.93 ? ' (Fortgeschritten)' : ' (Einsteiger)'));
     const est = h('p', { style: { fontSize: '12px', color: '#7d8898' } });
-    const updEst = () => { est.textContent = `≈ ${Math.round(R.laps * 86 / 60)} min Renndauer · KI-Rundenzeit bei 100 % ≈ 1:24`; };
+    const lapT = track.id === 'falkenried' ? 92 : 84;
+    const updEst = () => { est.textContent = `≈ ${Math.round(R.laps * (lapT + 2) / 60)} min Renndauer · KI-Rundenzeit bei 100 % ≈ ${fmtTime(lapT)}`; };
     updEst();
     return h('section.screen.solid',
       h('header', h('span.crumb', 'Schnelles Rennen'), h('h1', 'Rennen vorbereiten')),
@@ -50,6 +51,7 @@ Object.assign(UI, {
             h('p', track.def.character),
             h('div', h('span.stat', h('b', fmtNum(track.length / 1000, 3) + ' km'), h('small', 'Länge')), h('span.stat', h('b', String(full)), h('small', 'Runden (100 %)'))),
           )),
+          h('div.card', h('h3', 'Strecke wählen'), chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), track.id, v => { S.game.track = v; save(); this.show('raceSetup', { noHistory: true }); })),
           h('div.card', h('h3', 'Renndistanz'), chips(lapsOpts.map(n => ({ value: n, label: n === full ? `${n} Runden (100 %)` : `${n} Runden` })), R.laps, v => { R.laps = v; save(); updEst(); }), est),
           h('div.card', h('h3', 'Starterfeld'),
             fieldRow('Gegner', toggle([5, 9, 13, 19].map(n => ({ value: n, label: String(n) })), R.opponents, v => { R.opponents = v; save(); })),
@@ -69,6 +71,7 @@ Object.assign(UI, {
             fieldRow('Traktionskontrolle', toggle([{ value: 0, label: 'Aus' }, { value: 1, label: 'Mittel' }, { value: 2, label: 'Voll' }], S.aids.tc, v => { S.aids.tc = v; save(); })),
             fieldRow('ABS', toggle([{ value: false, label: 'Aus' }, { value: true, label: 'An' }], S.aids.abs, v => { S.aids.abs = v; save(); })),
             fieldRow('Schalten', toggle([{ value: false, label: 'Manuell' }, { value: true, label: 'Automatisch' }], S.aids.autoShift, v => { S.aids.autoShift = v; save(); })),
+            fieldRow('Ideallinie', toggle([{ value: 'off', label: 'Aus' }, { value: 'brake', label: 'Nur Bremszonen' }, { value: 'full', label: 'Voll' }], S.aids.idealLine || 'off', v => { S.aids.idealLine = v; save(); })),
           ),
           h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.filter(m => m !== 'tv').map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; save(); })),
           h('div.actions', btn('Rennen starten', () => Game.startRace(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
@@ -81,7 +84,7 @@ Object.assign(UI, {
   //  Fahrzeug-Setup
   // ---------------------------------------------------------------------------
   scr_setup() {
-    const trackId = 'ringpark';
+    const trackId = Game.trackId;
     const locked = Game.state === 'paused' && Game.mode === 'race';
     const cur = Object.assign({}, DEFAULT_SETUP, Game.setupFor(trackId));
     const body = h('div.grid2');

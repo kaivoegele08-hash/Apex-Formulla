@@ -6,7 +6,7 @@
 const DEFAULT_SETTINGS = {
   graphics: { preset: 'hoch', custom: {}, showFps: false, frameGraph: false, autoQuality: true },
   audio: { master: 0.8, engine: 0.85, effects: 0.8, radio: 0.8, ambient: 0.5, engineModel: 'physik' },
-  aids: { tc: 1, abs: false, autoShift: false, autoClutch: true, aeroAuto: true },
+  aids: { tc: 1, abs: false, autoShift: false, autoClutch: true, aeroAuto: true, idealLine: 'full' },
   camera: {
     mode: 'chaseNear', chaseFov: 62, hideWheel: false, hideHands: false,
     cockpit: { fov: 62, x: 0, y: 0, z: 0, pitch: 8, headMove: 1, shake: 1 },
@@ -17,8 +17,8 @@ const DEFAULT_SETTINGS = {
     pad: { map: DEFAULT_PAD, deadzone: 0.08, linearity: 1.6, speedSteer: 0.32, triggerGamma: 1.0 },
     kbSteerRate: 2.6, kbSteerReturn: 4.5, kbSpeedSteer: 0.22, rumble: 0.8,
   },
-  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du' },
-  race: { laps: 5, opponents: 19, strength: 0.96, grid: 'random', playerGrid: 'back', damage: 'full' },
+  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark' },
+  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full' },
   ffb: { enabled: false, strength: 0.7, invert: false, damper: 0.15, road: 0.5, vibration: 0.6 },
 };
 
@@ -87,6 +87,7 @@ const Game = {
   // ---------------------------------------------------------------------------
   //  Sitzung
   // ---------------------------------------------------------------------------
+  get trackId() { const t = this.settings.game.track; return TRACKS[t] ? t : 'ringpark'; },
   getLine(id) { if (!this.lines[id]) this.lines[id] = new RacingLine(this.getTrackModel(id)); return this.lines[id]; },
   setupFor(id) { return Object.assign({}, DEFAULT_SETUP, Save.get('setups', {})[id] || {}); },
   saveSetup(id, setup) { const all = Save.get('setups', {}); all[id] = Object.assign({}, setup); Save.set('setups', all); },
@@ -120,6 +121,8 @@ const Game = {
       this.builtFor = key;
     }
     this.tvSpots = buildTvSpots(track);
+    this.idealLine = new IdealLineVisual(track, this.getLine(track.id));
+    Render.scene.add(this.idealLine.mesh);
     return track;
   },
   _playerVisual() {
@@ -134,7 +137,9 @@ const Game = {
       if (this.carVis) sc.remove(this.carVis.root);
       for (const r of this.raceVis) sc.remove(r.vis.root);
       if (this.ghost) sc.remove(this.ghost.root);
+      if (this.idealLine) { sc.remove(this.idealLine.mesh); this.idealLine.mesh.geometry.dispose(); }
     }
+    this.idealLine = null;
     this.vehicle = null; this.carVis = null; this.session = null; this.race = null; this.raceVis = []; this.ghost = null; this.raceRec = null;
     this.resultsShown = false; this.playerDoneT = null;
     if (AudioSys.opp) AudioSys.updateOpponents([]);
@@ -167,7 +172,7 @@ const Game = {
   async startTestDrive() {
     await this._begin('Strecke wird aufgebaut …');
     try {
-      const track = await this._prepareTrack('ringpark');
+      const track = await this._prepareTrack(this.trackId);
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
       await nextFrame();
       this.mode = 'test';
@@ -186,7 +191,7 @@ const Game = {
   async startRace() {
     await this._begin('Startaufstellung wird vorbereitet …');
     try {
-      const track = await this._prepareTrack('ringpark');
+      const track = await this._prepareTrack(this.trackId);
       $('bootMsg').textContent = 'Ideallinie und Gegner werden berechnet …';
       await nextFrame();
       const line = this.getLine(track.id), R = this.settings.race, G = this.settings.game;
@@ -419,6 +424,7 @@ const Game = {
     }
     Render.updateSun(this.carVis.root.position);
     this._otherCars(dt, alpha, now);
+    if (this.idealLine) this.idealLine.update(v, this.state === 'finished' || (this.race && this.race.player.ai) ? 'off' : (S.aids.idealLine || 'off'));
     if (driving) { this._particles(dt); Render.updateParticles(dt); }
     // Audio
     AudioSys.update(dt, v, { interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });

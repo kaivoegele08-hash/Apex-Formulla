@@ -11,6 +11,10 @@ SPIELEN
   Startplatz und Schaden wählen. In der Startaufstellung wird das Auto
   gehalten (Gas geben zum Vorbereiten ist erlaubt); wenn die fünf roten
   Lichter erlöschen, geht es los.
+  Strecken: Kurstadt Ringpark und Falkenried-Ring (nach deiner Skizze).
+  Fahrhilfe „Ideallinie“: grün = Gas, gelb = Gas weg, rot = bremsen
+  (Einstellungen → Fahrhilfen bzw. in der Renn-/Testfahrt-Vorbereitung).
+  KI-Stärke 100 % = Grenzbereich des Autos, darüber mehr Grip („Legende“).
   „Testfahrt / Training“: Rundenzeiten mit Sektoren, Ghost der Bestrunde,
   Telemetrie (im Pausemenü) und Fahrzeug-Setup.
   Track Limits: alle vier Räder hinter der weißen Linie = Runde ungültig,

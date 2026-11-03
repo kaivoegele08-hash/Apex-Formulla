@@ -123,7 +123,7 @@ const UI = {
   // ---------------------------------------------------------------------------
   scr_drive() {
     const S = Game.settings;
-    const track = Game.getTrackModel('ringpark');
+    const track = Game.getTrackModel(Game.trackId);
     const map = new Minimap(track, 230);
     const cv = h('canvas', { width: 230, height: 230 }); cv.getContext('2d').drawImage(map.bg, 0, 0);
     const corners = (track.def.corners || []).map(c => c.name).join(' · ');
@@ -137,6 +137,7 @@ const UI = {
             h('div', h('span.stat', h('b', fmtNum(track.length / 1000, 3) + ' km'), h('small', 'Länge')), h('span.stat', h('b', String(track.corners.length)), h('small', 'Kurven')), h('span.stat', h('b', String(track.aeroZones.length)), h('small', 'Aero-Zonen'))),
             h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Kurven: ' + corners),
           )),
+          h('div.card', h('h3', 'Strecke wählen'), chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), track.id, v => { S.game.track = v; Game.saveSettings(); this.show('drive', { noHistory: true }); })),
           h('div.card', h('h3', 'Reifenmischung'), chips(COMPOUND_ORDER.slice(0, 5).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Team / Lackierung'), chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), S.game.team, v => { S.game.team = v; Game.saveSettings(); Game.refreshGarageCar(); })),
         ),
@@ -146,10 +147,11 @@ const UI = {
             fieldRow('ABS', toggle([{ value: false, label: 'Aus' }, { value: true, label: 'An' }], S.aids.abs, v => { S.aids.abs = v; Game.saveSettings(); })),
             fieldRow('Schalten', toggle([{ value: false, label: 'Manuell' }, { value: true, label: 'Automatisch' }], S.aids.autoShift, v => { S.aids.autoShift = v; Game.saveSettings(); })),
             fieldRow('Aktive Aero', toggle([{ value: true, label: 'Automatisch' }, { value: false, label: 'Manuell' }], S.aids.aeroAuto, v => { S.aids.aeroAuto = v; Game.saveSettings(); })),
+            fieldRow('Ideallinie', toggle([{ value: 'off', label: 'Aus' }, { value: 'brake', label: 'Nur Bremszonen' }, { value: 'full', label: 'Voll' }], S.aids.idealLine || 'off', v => { S.aids.idealLine = v; Game.saveSettings(); })),
           ),
           h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.filter(m => m !== 'tv').map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Ghost'), fieldRow('Bestrunde als Ghost', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], S.game.ghost !== false, v => { S.game.ghost = v; Game.saveSettings(); })),
-            h('p', { style: { fontSize: '12px' } }, (Save.get('bestLaps', {})['ringpark'] ? `Gespeicherte Bestzeit: ${fmtTime(Save.get('bestLaps', {})['ringpark'].time)}` : 'Noch keine Bestzeit gespeichert.'))),
+            h('p', { style: { fontSize: '12px' } }, (Save.get('bestLaps', {})[track.id] ? `Gespeicherte Bestzeit: ${fmtTime(Save.get('bestLaps', {})[track.id].time)}` : 'Noch keine Bestzeit gespeichert.'))),
           h('div.hint', 'In der Testfahrt ist der ', h('b', 'Überholmodus'), ' einmal pro Runde frei verfügbar (sonst nur innerhalb 1 s hinter dem Vordermann am Erkennungspunkt).'),
           h('div.actions', btn('Losfahren', () => Game.startTestDrive(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
         ),
@@ -211,6 +213,8 @@ const UI = {
             h('p', '• ', h('b', 'Schaden:'), ' Treffer beschädigen Front-/Heckflügel (weniger Abtrieb), Unterboden und Aufhängung (Auto zieht zur Seite). Zustand im MFD.'),
             h('p', '• ', h('b', 'Sektoren:'), ' lila = Allzeit-Bestwert, grün = persönliche Bestzeit der Sitzung, gelb = langsamer.'),
             h('p', '• ', h('b', 'Kameras:'), ' Cockpit, T-Cam, Nase, Verfolger nah/fern, TV-Kamera (Taste für Kamerawechsel).'),
+            h('p', '• ', h('b', 'Ideallinie (Fahrhilfe):'), ' grün = beschleunigen, gelb = Gas weg, rot = bremsen. Die Farben richten sich nach deinem aktuellen Tempo. Einstellbar unter Fahrhilfen (Aus / Nur Bremszonen / Voll).'),
+            h('p', '• ', h('b', 'KI-Gegner:'), ' verteidigen die Innenseite vor Bremszonen (ein Spurwechsel), machen auf der Geraden einmal die Tür zu, nutzen den Windschatten und bremsen innen später. Neben dir halten sie seitlich Abstand. Stärke über 100 % = mehr Grip als physikalisch möglich.'),
           ),
           h('div.card', h('h3', 'Lenkrad unter Linux (z. B. Bazzite)'),
             h('p', '• Das Lenkrad muss vom System erkannt werden (Kernel-Treiber, z. B. hid-logitech-hidpp, hid-tmff2, hid-fanatecff bzw. universal-pidff für Direct-Drive-Basen).'),
@@ -537,6 +541,8 @@ const UI = {
     return h('div.card', { style: { maxWidth: '760px' } }, h('h3', 'Fahrhilfen'),
       fieldRow('Traktionskontrolle', toggle([{ value: 0, label: 'Aus' }, { value: 1, label: 'Mittel' }, { value: 2, label: 'Voll' }], S.aids.tc, v => { S.aids.tc = v; Game.saveSettings(); Game.applyAids(); })),
       fieldRow('ABS', toggle([{ value: false, label: 'Aus' }, { value: true, label: 'An' }], S.aids.abs, v => { S.aids.abs = v; Game.saveSettings(); Game.applyAids(); })),
+      fieldRow('Ideallinie', toggle([{ value: 'off', label: 'Aus' }, { value: 'brake', label: 'Nur Bremszonen' }, { value: 'full', label: 'Voll' }], S.aids.idealLine || 'off', v => { S.aids.idealLine = v; Game.saveSettings(); })),
+      h('p', { style: { fontSize: '12px' } }, 'Ideallinie: grün = beschleunigen, gelb = Gas weg, rot = bremsen – passt sich deinem Tempo an.'),
       fieldRow('Automatisches Schalten', toggle([{ value: false, label: 'Aus' }, { value: true, label: 'An' }], S.aids.autoShift, v => { S.aids.autoShift = v; Game.saveSettings(); Game.applyAids(); })),
       fieldRow('Kupplung', toggle([{ value: true, label: 'Automatisch' }, { value: false, label: 'Manuell (Pedal)' }], S.aids.autoClutch, v => { S.aids.autoClutch = v; Game.saveSettings(); Game.applyAids(); })),
       fieldRow('Aktive Aerodynamik', toggle([{ value: true, label: 'Automatisch' }, { value: false, label: 'Manuell (Taste)' }], S.aids.aeroAuto, v => { S.aids.aeroAuto = v; Game.saveSettings(); Game.applyAids(); })),

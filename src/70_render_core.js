@@ -447,6 +447,7 @@ const Render = {
 
 const TIME_OF_DAY = {
   afternoon: { elevation: 34, azimuth: 205, turbidity: 5.5, rayleigh: 1.4, sun: 3.4, sunColor: 0xfff1de, hemi: 0.85, skyColor: 0xbcd4f0, groundColor: 0x5b6b45, fog: 0xb9c9d9 },
+  evening: { elevation: 13, azimuth: 248, turbidity: 7.5, rayleigh: 2.4, sun: 3.0, sunColor: 0xffc78a, hemi: 0.68, skyColor: 0xd7c3a8, groundColor: 0x4f5a38, fog: 0xd6bf9f },
 };
 
 // ---------------------------------------------------------------------------

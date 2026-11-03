@@ -5,7 +5,7 @@
 // ============================================================================
 
 const APP_NAME = 'Apex Formula';
-const APP_VERSION = '0.3.0 – Phase 3';
+const APP_VERSION = '0.3.1 – Phase 3+';
 const PHYS_HZ = 360;                 // fester Physik-Takt
 const PHYS_DT = 1 / PHYS_HZ;
 const DEG = Math.PI / 180;

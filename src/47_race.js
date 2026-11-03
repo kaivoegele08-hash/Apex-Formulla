@@ -261,9 +261,9 @@ class RaceSession {
       };
       if (!e.player) {
         const prof = e.profile || makeAIProfile(e.driver, opts.aiStrength ?? 1, this.rng);
+        if ((opts.aiStrength ?? 1) > 1) v.trackGrip = 1 + ((opts.aiStrength ?? 1) - 1) * 0.6;   // über 100 %: etwas mehr Haftung
         en.ai = new AIDriver(v, this.line, prof, idx * 13 + 7);
         en.ai.hold();
-        if ((opts.aiStrength ?? 1) > 1) v.trackGrip = 1 + ((opts.aiStrength ?? 1) - 1) * 0.6;   // „Legende“: etwas mehr Haftung
       }
       v.onImpact = (sp, nx, nz) => this._onWall(en, sp, nx, nz);
       en.timing.on((type, data) => this._onTiming(en, type, data));

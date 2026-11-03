@@ -58,3 +58,55 @@ function buildTvSpots(track) {
   }
   return spots;
 }
+
+/**
+ * Fahrhilfe „Ideallinie“: Band auf der Fahrbahn entlang der Ideallinie, pro Bild nach dem
+ * aktuellen Tempo eingefärbt – grün = beschleunigen, gelb = Gas weg, rot = bremsen.
+ * Grundlage ist das Tempoprofil (Bremsweg-Kurve) mit leicht vorsichtigem Griff.
+ */
+class IdealLineVisual {
+  constructor(track, line, grip = 0.96) {
+    this.track = track; this.line = line; this.prof = line.profile(grip);
+    const T = track, N = T.N, W = 0.32;
+    const pos = new Float32Array(N * 2 * 3), col = new Float32Array(N * 2 * 4), idx = [];
+    for (let j = 0; j < N; j++) {
+      const d = line.off[j], x = line.X[j], z = line.Z[j];
+      const y = T.visualHeight(j, d) + 0.03;
+      const rx = T.RX[j], rz = T.RZ[j];
+      pos.set([x - rx * W, y, z - rz * W, x + rx * W, y, z + rz * W], j * 6);
+      const a = j * 2, b = ((j + 1) % N) * 2;
+      // kurze Lücke alle 4 Samples → gestrichelte Optik
+      if (j % 4 !== 3) idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.col = new THREE.BufferAttribute(col, 4); this.col.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('color', this.col);
+    g.setIndex(idx);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, side: THREE.DoubleSide });
+    this.mesh = new THREE.Mesh(g, m); this.mesh.frustumCulled = false; this.mesh.renderOrder = 2;
+    this.lastJ = -1; this.mode = 'full';
+  }
+  /** v = Spielerfahrzeug, mode = 'off' | 'brake' | 'full' */
+  update(v, mode) {
+    this.mesh.visible = mode !== 'off';
+    if (mode === 'off' || !v || v.trackIdx < 0) return;
+    const T = this.track, N = T.N, c = this.col.array, P = this.prof;
+    const spd = Math.max(0, v.vLong), j0 = v.trackIdx, ahead = Math.round(520 / T.ds), behind = 6;
+    // alten Bereich ausblenden
+    if (this.lastJ >= 0) for (let q = -behind; q <= ahead; q++) { const k = (this.lastJ + q + N) % N; c[k * 8 + 3] = 0; c[k * 8 + 7] = 0; }
+    for (let q = -behind; q <= ahead; q++) {
+      const k = (j0 + q + N) % N, vp = P[k];
+      let r, g, b;
+      if (spd > vp * 1.03) { r = 1.0; g = 0.12; b = 0.08; }            // bremsen
+      else if (spd > vp * 0.93) { r = 1.0; g = 0.82; b = 0.05; }       // Gas weg / rollen
+      else { r = 0.15; g = 0.95; b = 0.35; }                            // beschleunigen
+      let a = q < 0 ? 0.25 : 0.85 * (1 - smoothstep(ahead * 0.55, ahead, q));
+      if (mode === 'brake' && g > 0.9) a = 0;                           // nur Brems- und Rollzonen
+      c[k * 8] = r; c[k * 8 + 1] = g; c[k * 8 + 2] = b; c[k * 8 + 3] = a;
+      c[k * 8 + 4] = r; c[k * 8 + 5] = g; c[k * 8 + 6] = b; c[k * 8 + 7] = a;
+    }
+    this.lastJ = j0;
+    this.col.needsUpdate = true;
+  }
+}
