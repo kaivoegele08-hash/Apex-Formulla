@@ -172,8 +172,9 @@ const Game = {
     return want;
   },
   getLine(id) { if (!this.lines[id]) this.lines[id] = new RacingLine(this.getTrackModel(id)); return this.lines[id]; },
-  setupFor(id) { return Object.assign({}, DEFAULT_SETUP, Save.get('setups', {})[id] || {}); },
-  saveSetup(id, setup) { const all = Save.get('setups', {}); all[id] = Object.assign({}, setup); Save.set('setups', all); },
+  // Setup je Strecke und Epoche (Standardauto: wie bisher nur Strecke); Grundwerte kann ein Mod-Auto mitbringen (spec.setup)
+  setupFor(id) { return Object.assign({}, DEFAULT_SETUP, CAR_SPEC.setup || {}, Save.get('setups', {})[trackKey(id)] || {}); },
+  saveSetup(id, setup) { const all = Save.get('setups', {}); all[trackKey(id)] = Object.assign({}, setup); Save.set('setups', all); },
   /** Setup sofort übernehmen (Testfahrt): Parameter neu berechnen und Auto an die Strecke setzen */
   applySetupLive(setup) {
     const v = this.vehicle; if (!v) return;

@@ -12,6 +12,7 @@ Hier kommen eigene Strecken, Teams, Fahrer und Autos (Epochen) hinein.
     beispiel_team.js      ← Beispiel: Team + Fahrer (in mods.js auskommentiert)
     beispiel_auto.js      ← Beispiel: Auto/Epoche mit eigenem Modell (in mods.js auskommentiert)
     beispiel_oldtimer.js  ← Beispiel: komplett eigenes Modell „Zigarre“ (in mods.js auskommentiert)
+    beispiel_gt.js        ← Beispiel: GT-Sportwagen mit geschlossener Karosserie (in mods.js auskommentiert)
     vorlagen/             ← fertige KI-Prompts zum Erstellen neuer Mods
 
 
@@ -147,7 +148,15 @@ die vom Standardauto (2026) abweichen.
               cdBody: 0.56, cdRW: 0.3, cdFW: 0.1 },      // Widerstand (m²) – 2026: 0.55 / 0.36 / 0.10
       tyre: { muScale: 0.95 },        // Reifengrip (1 = 2026, Rillenreifen ≈ 0.87)
     },
-    ai: null }            // optional: KI-Grenzen; ohne Angabe schätzt das Spiel sie
+    ai: null,             // optional: KI-Grenzen; ohne Angabe schätzt das Spiel sie
+    aiScale: 0.9 }        // optional: geschätzte KI-Grenzen skalieren (0.3–1.5), z. B. wenn die KI abfliegt;
+                          //   auch getrennt: aiScale: { lat: 0.85, brk: 0.8 } (Kurven / Bremsen)
+
+  spec.setup (optional): Grund-Setup des Autos, z. B.
+    setup: { brakeBias: 63, springF: 230, springR: 210, arbF: 80, arbR: 70, rideF: 40, rideR: 60 }
+    Bereiche: brakeBias 50–65 (% vorne), springF 140–300, springR 120–260 (kN/m),
+    arbF 40–200, arbR 20–160, rideF 20–50, rideR 50–100 (mm). Der Spieler kann es im
+    Setup-Menü weiter ändern (Setups werden je Strecke und Epoche gespeichert).
 
 Leistung = Drehmoment × Drehzahl: 300 Nm bei 18.000 U/min ≈ 565 kW ≈ 770 PS.
 Höchstgeschwindigkeit ergibt sich aus Leistung, Luftwiderstand und dem
@@ -200,19 +209,44 @@ Bauteile (alle optional – was fehlt, kommt vom Standardauto 2026):
      (bei eigener nose gilt immer deine Form, ohne Höhenvarianten)
   parts:       Zusatzteile (bis 80), jedes mit mat und optional mirror: true
                (dann zusätzlich spiegelbildlich auf der linken Seite):
-     { type: 'loft',  sections: [Querschnitte], cap: true }
+     { type: 'loft',  sections: [Querschnitte], cap: true }   (Querschnitte dürfen x enthalten → seitlich versetzt, z. B. Kotflügel)
      { type: 'box',   size: [Breite, Höhe, Länge], pos: [x, y, z], rot: [Grad x, y, z], r: Rundung }
      { type: 'wing',  span, chord, thick, camber, pos: [x, y, z], rotX: Grad }
      { type: 'cyl',   r (oder r1 vorne/oben, r2), len, pos, rot }   – Zylinder steht senkrecht;
                       rot: [90, 0, 0] legt ihn längs, [0, 0, 90] quer
      { type: 'sphere', r, pos, scale: [x, y, z] }
      mat: 'paint' (Lackierung mit Startnummer), 'team' / 'team2' (Teamfarbe 1/2),
-          'carbon', 'dark', 'chrome', 'glass'
+          'carbon', 'dark', 'chrome', 'glass' (getönt, durchsichtig),
+          'light' (Scheinwerfer, leuchtet), 'taillight' (Rückleuchte, hell beim Bremsen)
 
 Tipp: Erst nur eine Kleinigkeit ändern (z. B. nose), im Hauptmenü auf die
 Garage schauen, dann weitermachen. Fehler (z. B. falsch sortierte z-Werte)
 zeigt das Menü „Mods“ mit genauer Stelle an. Abgefallene Flügel bei Schaden
 und die Physik funktionieren auch mit eigenem Modell.
+
+
+6c. SPORTWAGEN / GESCHLOSSENE AUTOS (GT, Prototypen, Tourenwagen)
+-----------------------------------------------------------------
+Mit model.body: 'closed' baut das Spiel kein Formel-Cockpit: keine offene
+Cockpitwanne, kein Halo, keine Formel-Spiegel und keine sichtbaren Querlenker.
+Stattdessen gibt es ein einfaches GT-Cockpit (Armaturenbrett, Mittelkonsole,
+Sitzschale, Überrollkäfig), das Lenkrad steht aufrechter.
+  driver: { x, y, z }   Sitzposition (Helmmitte). Links sitzen: x ≈ -0.37.
+                        Fahrer, Lenkrad und Cockpitkamera folgen automatisch.
+Karosserie bauen (Beispiel: beispiel_gt.js):
+  - nose = Vorderwagen bis zur Windschutzscheibe, engineCover = Hinterwagen,
+    das Mittelstück (Türen) als parts-loft – alle mit hohem n (4–5, kastig).
+  - Kabine als loft mit mat: 'glass', das Dach als flacher loft in 'paint'.
+  - Kotflügel als eigene loft-Teile mit x-Versatz und mirror: true, damit die
+    Räder darunter sichtbar bleiben (der Rumpf selbst schmaler als die Spur).
+  - Scheinwerfer: sphere mit scale [1.3, 0.45, 0.45] und mat: 'light';
+    Rückleuchten: flache box mit mat: 'taillight'.
+  - look: { frontWing: false, fin: false, beam: false, barge: false } und
+    rearWing für den Heckflügel (span ≈ 1.7, y ≈ 0.65).
+Physik für schwere Autos (≈ 1200–1400 kg): Schwerpunkt cgHeight ≈ 0.38–0.42,
+floorY ≈ -0.36 bis -0.40, Spur ≈ 1.65–1.70 m, Bremsbalance nach vorne
+(spec.setup.brakeBias ≈ 62–64), weniger Abtrieb (cl gesamt ≈ 1–1.5 m²) und
+aiScale ≈ 0.85. Eine fertige KI-Vorlage: vorlagen/PROMPT_GT_Auto.txt
 
 
 7. RECHTLICHES
@@ -230,7 +264,8 @@ antwortet mit einer fertigen Mod-Datei:
   PROMPT_Strecke.txt        neue Strecke (aus Beschreibung oder Skizze)
   PROMPT_Fahrer.txt         Fahrerfeld / einzelne Fahrer
   PROMPT_Team.txt           neues Team mit Lackierung und Fahrern
-  PROMPT_Auto_Epoche.txt    eigenes Fahrzeugkonzept (z. B. „Formel 2008“)
+  PROMPT_Auto_Epoche.txt    eigenes Fahrzeugkonzept mit Modell (z. B. „Formel 2008“)
+  PROMPT_GT_Auto.txt        GT-Sportwagen / geschlossenes Auto (Fahrer links, Lichter)
   PROMPT_Saison_Paket.txt   komplette Mod: mehrere Strecken + Teams + Fahrer
   PROMPT_Fehler_beheben.txt  wenn das Spiel eine Mod mit Fehler meldet
 

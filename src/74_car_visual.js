@@ -165,8 +165,8 @@ function buildCarGeo(M, spec) {
     G.halo = new THREE.TubeGeometry(haloPath, 48, 0.024, 10, false);
     const pillar = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.30, -0.92), new THREE.Vector3(0, 0.48, -0.82), new THREE.Vector3(0, 0.64, -0.64)]), 12, 0.021, 8, false);
     G.halo = mergeNI([G.halo, pillar]);
-    // Spiegel (Gehäuse) + Stiele
-    for (const sx of [-1, 1]) {
+    // Spiegel (Gehäuse) + Stiele – nur Formelwagen
+    if (M.body !== 'closed') for (const sx of [-1, 1]) {
       const m = roundedBox(0.13, 0.06, 0.05, 0.012, 2); m.translate(sx * 0.44, 0.40, -0.50); carbon.push(m);
       const st = new THREE.CylinderGeometry(0.008, 0.008, 0.16, 6); st.rotateZ(Math.PI / 2 * 0.6 * sx); st.translate(sx * 0.37, 0.35, -0.50); carbon.push(st);
     }
@@ -213,6 +213,22 @@ function buildCarGeo(M, spec) {
     // Querlenker-Stab (Einheitslänge entlang y)
     G.rod = new THREE.CylinderGeometry(0.011, 0.011, 1, 6); G.rod.translate(0, 0.5, 0);
     G.parts = buildCarParts(M.parts || []);
+    G.closed = M.body === 'closed';
+    const D = G.driver = Object.assign({ x: 0, y: 0.49, z: -0.17 }, M.driver || {});
+    // GT-Cockpit (geschlossene Karosserie): Armaturenbrett, Mittelkonsole, Sitzschale, Überrollkäfig
+    if (G.closed) {
+      const gt = [];
+      const dash = roundedBox(1.05, 0.12, 0.30, 0.03, 2); dash.translate(0, D.y - 0.19, D.z - 0.72); gt.push(dash);
+      const cons = new THREE.BoxGeometry(0.16, 0.22, 0.55); cons.translate(0, D.y - 0.30, D.z - 0.35); gt.push(cons);
+      const seat = loftGeometry([{ z: D.z - 0.05, w: 0.46, h: 0.10, y: D.y - 0.42, n: 3 }, { z: D.z + 0.10, w: 0.48, h: 0.55, y: D.y - 0.18, n: 3 }, { z: D.z + 0.16, w: 0.44, h: 0.62, y: D.y - 0.12, n: 3 }], { radial: 18, sub: 2, capStart: true, capEnd: true });
+      seat.translate(D.x, 0, 0); gt.push(seat);
+      const tube = (a, b) => { const v = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), L = v.length(), c = new THREE.CylinderGeometry(0.02, 0.02, L, 8); c.translate(0, L / 2, 0); c.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize()))); c.translate(a[0], a[1], a[2]); return c; };
+      const top = D.y + 0.26, zb = D.z + 0.28, zf = D.z - 0.75, bot = D.y - 0.38;
+      // Käfig an den Kabinenrand (A-Säulen außen, nicht im Blickfeld)
+      for (const sx of [-1, 1]) { gt.push(tube([sx * 0.62, bot, zb], [sx * 0.56, top, zb])); gt.push(tube([sx * 0.56, top, zb], [sx * 0.58, top - 0.04, zf + 0.30])); gt.push(tube([sx * 0.58, top - 0.04, zf + 0.30], [sx * 0.70, bot + 0.12, zf])); }
+      gt.push(tube([-0.56, top, zb], [0.56, top, zb])); gt.push(tube([-0.56, top, zb], [0.62, bot, zb]));
+      G.gtInterior = mergeNI(gt);
+    }
     G.look = M.look || {};
     return G;
 }
@@ -420,7 +436,7 @@ class CarVisual {
     const add = (geo, mat, parent = root, cast = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
     const fine = [], mid = [], cast = [];
     cast.push(add(G.body, this.paint));
-    this.cockpit = add(G.cockpitSides, new THREE.MeshStandardMaterial(Object.assign({}, paintParams, { side: THREE.DoubleSide })));
+    this.cockpit = G.closed ? null : add(G.cockpitSides, new THREE.MeshStandardMaterial(Object.assign({}, paintParams, { side: THREE.DoubleSide })));
     cast.push(add(G.carbon, this.carbonMat));
     // Epochen-Teile: Nase (3 Varianten), Frontflügel- und Heckflügel-Baugruppen, Haifischflosse, Beam-Wing, Bargeboards
     this.noseMesh = {}; this.pylonMesh = {};
@@ -431,11 +447,14 @@ class CarVisual {
     cast.push(add(G.rwMain, this.carbonMat, this.rwInner)); cast.push(add(G.endR, this.endMat, this.rwInner)); add(G.swan, this.carbonMat, this.rwInner);
     this.diffMesh = add(G.diffuser, this.carbonMat);
     this.finMesh = add(G.fin, this.carbonMat); this.beamMesh = add(G.beam, this.carbonMat); this.bargeMesh = add(G.barge, this.carbonMat);
-    mid.push(this.cockpit);
-    mid.push(this.haloMesh = add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
-    fine.push(add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false));
-    mid.push(add(G.rim, new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.95 }), root, false));
-    for (const sx of [-1, 1]) {
+    this.haloMesh = null;
+    if (!G.closed) {
+      mid.push(this.cockpit);
+      mid.push(this.haloMesh = add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
+      fine.push(add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false));
+      mid.push(add(G.rim, new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.95 }), root, false));
+    } else mid.push(add(G.gtInterior, new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.7, metalness: 0.2 }), root, false));
+    if (!G.closed) for (const sx of [-1, 1]) {
       const mg = new THREE.Mesh(G.mirrorGlass, new THREE.MeshStandardMaterial({ color: 0x8fa6c0, roughness: 0.05, metalness: 1.0 }));
       mg.position.set(sx * 0.44, 0.40, -0.474); root.add(mg); fine.push(mg);
     }
@@ -451,13 +470,16 @@ class CarVisual {
     const PM = { paint: this.paint, carbon: this.carbonMat, team: this.endMat,
       team2: new THREE.MeshStandardMaterial({ color: new THREE.Color(team.colors[1] || team.colors[0]), roughness: 0.35, metalness: 0.2 }),
       dark: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6 }), chrome: new THREE.MeshStandardMaterial({ color: 0xd6dade, roughness: 0.15, metalness: 1 }),
-      glass: new THREE.MeshStandardMaterial({ color: 0x223040, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.6 }) };
-    for (const k in G.parts) cast.push(add(G.parts[k], PM[k] || this.carbonMat));
+      glass: new THREE.MeshStandardMaterial({ color: 0x223040, roughness: 0.05, metalness: 0.9, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+      light: new THREE.MeshBasicMaterial({ color: 0xfff4e2, toneMapped: false }),
+      taillight: this.tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0606, emissive: 0xff1a10, emissiveIntensity: 0.6 }) };
+    for (const k in G.parts) { const m = add(G.parts[k], PM[k] || this.carbonMat, root, k !== 'glass' && k !== 'light'); if (k !== 'glass' && k !== 'light') cast.push(m); }
     // Rücklicht
     this.lightMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1010, emissiveIntensity: 0 });
     const rl = new THREE.Mesh(G.rainLight, this.lightMat); rl.position.set(0, 0.04, 2.385); root.add(rl); mid.push(rl);
     // Fahrerhelm
-    this.helmet = new THREE.Group(); this.helmet.position.set(0, 0.49, -0.17);
+    const DP = G.driver;
+    this.helmet = new THREE.Group(); this.helmet.position.set(DP.x, DP.y, DP.z);
     const hm = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(team.colors[1]), roughness: 0.25, clearcoat: 1 });
     this.helmet.add(new THREE.Mesh(G.helmet, hm));
     const vm = new THREE.Mesh(G.visor, new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 0.05, metalness: 0.9 })); vm.rotation.y = Math.PI; this.helmet.add(vm);
@@ -485,7 +507,7 @@ class CarVisual {
     }
     // Querlenker (dynamisch)
     this.rods = [];
-    if (detail === 'high') {
+    if (detail === 'high' && !G.closed) {
       const rodMat = this.carbonMat;
       const defs = [];
       for (let i = 0; i < 4; i++) {
@@ -501,13 +523,13 @@ class CarVisual {
     }
     // Lenkrad (Cockpit)
     this.sw = new SteeringWheelModel(team);
-    this.swPivot = new THREE.Group(); this.swPivot.position.set(0, 0.272, -0.655); this.swPivot.rotation.x = -0.28;
+    this.swPivot = new THREE.Group(); this.swPivot.position.set(DP.x, DP.y - (G.closed ? 0.15 : 0.218), DP.z - (G.closed ? 0.40 : 0.485)); this.swPivot.rotation.x = G.closed ? -0.45 : -0.28;
     this.swPivot.add(this.sw.group); root.add(this.swPivot);
     this._p = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._v2 = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
     this.cockpitView = false;
     // Detailstufen: fine = ab Stufe 1 aus, mid = ab Stufe 2 aus (siehe setCarLod)
     this.lodFine = fine.concat(this.rods.map(r => r.mesh)); this.lodMid = mid.concat(this.fwFlaps, [this.rwPivot, this.helmet]);
-    this.shadowMeshes = cast.concat([this.cockpit]);
+    this.shadowMeshes = cast.concat(this.cockpit ? [this.cockpit] : []);
     root.traverse(o => { if (o.isMesh) o.frustumCulled = true; });
     this.applyEraLook();
   }
@@ -606,6 +628,8 @@ class CarVisual {
     const fl = veh.aeroFlap;
     this.rwPivot.rotation.x = lerp(0.52, 0.10, fl);
     this.fwFlaps.forEach((p, k) => { p.rotation.x = p.userData.base * lerp(1, 0.45, fl); });
+    // Rückleuchten (Mod-Material taillight): hell beim Bremsen, nachts gedimmt an
+    if (this.tailMat) this.tailMat.emissiveIntensity = veh.input && veh.input.brake > 0.1 ? 4 : (typeof Render !== 'undefined' && Render.night ? 1.4 : 0.5);
     // Rücklicht blinkt bei Rekuperation
     this.lightMat.emissiveIntensity = veh.harvesting && (Math.floor(now * 4) % 2 === 0) ? 4 : (veh.pitLimiter ? 2 : 0.0);
     // Querlenker

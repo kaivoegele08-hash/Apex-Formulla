@@ -633,9 +633,10 @@ class CameraRig {
         if (dtI < 0.4) sh += Math.min(1, veh.impact / 10) * 0.02 * Math.exp(-dtI * 9) * c.shake;
       }
       this.shake.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh * 0.5);
+      const DP = typeof carDriverPos === 'function' ? carDriverPos() : { x: 0, y: 0.49, z: -0.17, closed: false };
       const eye = this.mode === 'cockpit'
-        ? this._v.set(c.x + this.headLat, 0.515 + c.y, -0.24 + c.z + this.headLong)
-        : this._v.set(0, 0.86, 0.32);
+        ? this._v.set(DP.x + c.x + this.headLat, DP.y + 0.025 + c.y, DP.z - 0.07 + c.z + this.headLong)
+        : DP.closed ? this._v.set(0, DP.y + 0.62, DP.z + 0.35) : this._v.set(0, 0.86, 0.32);
       eye.add(this.shake);
       cam.position.copy(eye).applyQuaternion(q).add(p);
       // Ausrichtung: Fahrzeugausrichtung + Neigung nach unten + Blick

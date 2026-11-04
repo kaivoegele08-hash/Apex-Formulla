@@ -248,11 +248,13 @@ const CAR_MODEL_BASE = {
   floor: [[-0.30, -1.35], [-0.62, -0.95], [-0.74, -0.55], [-0.76, 0.95], [-0.62, 1.30], [-0.52, 1.42], [0.52, 1.42], [0.62, 1.30], [0.76, 0.95], [0.74, -0.55], [0.62, -0.95], [0.30, -1.35]],
   frontWing: { span: 1.82, chord: 0.30, thick: 0.07, camber: 0.06, y: -0.165, z: -2.86, flaps: 2 },
   rearWing: { span: 1.0, chord: 0.26, thick: 0.09, camber: 0.07, y: 0.50, z: 2.08, flaps: 1 },
+  body: 'open', // 'open' (Formelwagen) oder 'closed' (Sportwagen: ohne Cockpitwanne, Halo, Formel-Spiegel, Querlenker; mit GT-Cockpit)
+  driver: null,  // Sitzposition { x, y, z } (Helmmitte) – Standard Formelwagen { x: 0, y: 0.49, z: -0.17 }
   look: {},     // optional: { nose: 'low'|'mid'|'high', fin, beam, barge, grooves, fw, rwX, rwY, frontWing, rearWing, diffuser } – sonst nach Baujahr
   parts: [],    // zusätzliche Teile (siehe mods/README.txt)
 };
 const CAR_PART_TYPES = ['loft', 'box', 'wing', 'cyl', 'sphere'];
-const CAR_PART_MATS = ['paint', 'carbon', 'team', 'team2', 'dark', 'chrome', 'glass'];
+const CAR_PART_MATS = ['paint', 'carbon', 'team', 'team2', 'dark', 'chrome', 'glass', 'light', 'taillight'];
 /** Mod-Modell mit dem Standardmodell zusammenführen (Listen ersetzen, Flügel-Objekte ergänzen) */
 function carModelOf(M) {
   const B = CAR_MODEL_BASE; if (!M) return B;
@@ -283,10 +285,18 @@ function validateCarModel(M) {
     if (p.type === 'cyl') { num(p.len, `parts[${i}].len`); if (p.r === undefined && p.r1 === undefined) throw new Error(`model.parts[${i}]: cyl braucht r (oder r1/r2)`); }
     if (p.type === 'sphere') num(p.r, `parts[${i}].r`);
   });
-  if ((M.parts || []).length > 80) throw new Error('model.parts: höchstens 80 Teile');
+  if ((M.parts || []).length > 120) throw new Error('model.parts: höchstens 120 Teile');
+  if (M.body !== undefined && M.body !== 'open' && M.body !== 'closed') throw new Error("model.body: 'open' oder 'closed'");
+  if (M.driver !== undefined && M.driver !== null) { for (const k of ['x', 'y', 'z']) num(M.driver[k], `driver.${k}`); }
   return true;
 }
 
+/** Sitzposition (Helmmitte) des aktiven Autos, auf Radstand/Breite gestreckt – für Cockpitkamera */
+function carDriverPos() {
+  const E = eraOf(CAR_SPEC.era || 'e2026'), M = E.model || {};
+  const D = Object.assign({ x: 0, y: 0.49, z: -0.17 }, M.driver || {}), sz = (CAR_SPEC.wheelbase || 3.4) / 3.4, sx = E.width || 1;
+  return { x: D.x * sx, y: D.y, z: D.z * sz, closed: M.body === 'closed' };
+}
 function applyEra(id) {
   const E = eraOf(id);
   if (ACTIVE_ERA === E.id && applyEra._done) return false;

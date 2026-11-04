@@ -98,7 +98,7 @@ class Wheel {
 class Vehicle {
   constructor(spec = CAR_SPEC, setup = DEFAULT_SETUP) {
     this.spec = spec;
-    this.setup = Object.assign({}, DEFAULT_SETUP, setup);
+    this.setup = Object.assign({}, DEFAULT_SETUP, spec.setup || {}, setup);
     this.curveX = new TyreCurve(spec.tyre.Bx, spec.tyre.Cx, spec.tyre.Ex);
     this.curveY = new TyreCurve(spec.tyre.By, spec.tyre.Cy, spec.tyre.Ey);
     // Starrkörper
@@ -144,7 +144,7 @@ class Vehicle {
   //  Setup → physikalische Parameter
   // ---------------------------------------------------------------------------
   applySetup(setup) {
-    const S = this.setup = Object.assign({}, DEFAULT_SETUP, setup);
+    const S = this.setup = Object.assign({}, DEFAULT_SETUP, this.spec.setup || {}, setup);
     const spec = this.spec, mg = this.mass * G0;
     const hf = S.rideF / 1000, hr = S.rideR / 1000;
     const zf = spec.plankZ[0], zr = spec.plankZ[1];
