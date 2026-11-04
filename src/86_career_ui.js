@@ -20,13 +20,31 @@ function fmtFans(n) { return n >= 1e6 ? fmtNum(n / 1e6, 1) + ' Mio.' : n >= 1000
 Object.assign(UI, {
   scr_career(opts = {}) {
     const c = Game.career;
-    if (!c) return this._careerNew();
+    if (!c) return opts.newCareer ? this._careerNew() : this._careerSlots();
     if (c.phase === 'pick') return this._careerPick(c);
     if (c.phase === 'offseason') return this._careerOffseason(c);
     return this._careerHub(c, opts);
   },
 
   // ---------------------------------------------------------------------------
+  _careerSlots() {
+    const cards = [1, 2, 3].map(slot => {
+      const i = Game.careerInfo(slot);
+      return h('div.card', { style: { flex: '1 1 280px', borderLeft: `5px solid ${i ? '#ff3b1f' : '#2a3342'}` } },
+        h('h3', `Speicherplatz ${slot}`),
+        i ? [h('h2.ital', { style: { margin: '0 0 6px' } }, i.name), h('p', `${i.team} · Saison ${i.season} (${i.year}) · Runde ${Math.min(i.round + 1, i.rounds)}/${i.rounds}`), h('p', { style: { color: '#7d8898' } }, `${i.era}${i.titles ? ` · ${i.titles} WM-Titel` : ''}`),
+          h('div.actions', btn('Fortsetzen', () => { Game.useCareerSlot(slot); this.show('career', { noHistory: true }); }, 'primary small'),
+            i.hasBak ? btn('Saisonende-Sicherung laden', () => this.confirm('Den Stand vom letzten Saisonende wiederherstellen? Der aktuelle Stand dieses Platzes wird ersetzt.', () => { Game.restoreCareerBackup(slot); this.show('career', { noHistory: true }); }), 'small') : null,
+            btn('Löschen', () => this.confirm(`Karriere von ${i.name} (Platz ${slot}) löschen?`, () => { Game.endCareer(slot); this.show('career', { noHistory: true }); }), 'small ghost'))]
+          : [h('p', { style: { color: '#7d8898' } }, 'Leer'), h('div.actions', btn('Neue Karriere', () => { Game.useCareerSlot(slot); this.show('career', { noHistory: true, newCareer: true }); }, 'primary small'))]);
+    });
+    return h('section.screen.solid',
+      h('header', h('span.crumb', 'Karriere'), h('h1', 'Speicherplätze')),
+      h('div.row', { style: { alignItems: 'stretch', flexWrap: 'wrap' } }, cards),
+      h('p', { style: { fontSize: '12px', color: '#7d8898', maxWidth: '760px' } }, 'Jede Karriere wird nach jedem Rennen gespeichert; am Saisonende entsteht zusätzlich eine Sicherung. Alle Spielstände kannst du unter Einstellungen → Allgemein als Datei sichern.'),
+      h('div.actions', btn('Zurück', () => this.show('main', { noHistory: true }), 'ghost')));
+  },
+
   _careerNew() {
     const G = Game.settings.game;
     const o = this._cOpts || (this._cOpts = { name: G.playerName && G.playerName !== 'Du' ? G.playerName : '', number: G.number || 77, nat: 'DEU', era: G.era || 'e2026', strength: Game.settings.race.strength || 1, distance: 'quarter', quali: true, qualiMin: 10, weather: 'random' });
@@ -115,7 +133,7 @@ Object.assign(UI, {
       h('div.scroll', { style: { flex: '1' } }, body),
       h('div.actions', nextT ? btn(`Rennwochenende: ${nextT.name}`, () => Game.startCareerRound(), 'primary', '▶') : null, nextT ? btn('Fahrzeug-Setup', () => { Game.settings.game.track = next; this.show('setup'); }) : null,
         btn('Hauptmenü', () => this.show('main', { noHistory: true }), 'ghost'),
-        btn('Karriere löschen', () => this.confirm('Karriere wirklich löschen? Alle Saisons gehen verloren.', () => { Game.endCareer(); this.show('main', { noHistory: true }); }), 'ghost')),
+        btn('Speicherplätze', () => { Game.closeCareer(); this.show('career', { noHistory: true }); }, 'ghost')),
     );
   },
 

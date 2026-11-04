@@ -122,7 +122,7 @@ const UI = {
     };
     const c0 = team.colors[0], c1 = team.colors[1];
     const tiles = h('div.hub-main',
-      tile({ big: true, kicker: 'Spielmodus', title: 'Karriere', desc: 'Eigener Fahrer, mehrere Saisons, Teamwechsel, Rivalen und Social Media.', deco: 'K', dim: !UI.scr_career, dimMsg: 'Die Karriere kommt mit einem der nächsten Updates.', badge: UI.scr_career ? (Save.get('career', null) ? 'Fortsetzen' : 'Neu') : 'Bald',
+      tile({ big: true, kicker: 'Spielmodus', title: 'Karriere', desc: 'Eigener Fahrer, mehrere Saisons, Teamwechsel, Rivalen und Social Media.', deco: 'K', dim: !UI.scr_career, dimMsg: 'Die Karriere kommt mit einem der nächsten Updates.', badge: UI.scr_career ? ([1, 2, 3].some(k => Game.careerInfo(k)) ? 'Fortsetzen' : 'Neu') : 'Bald',
         bg: `linear-gradient(135deg, ${c0}cc 0%, #0e1117 70%)`, acc: c1, go: () => this.show('career') }),
       tile({ kicker: season && !sDone ? `Runde ${season.round + 1} von ${season.tracks.length}` : 'Saison', title: 'Meisterschaft', desc: season && !sDone ? `${eraOf(season.era || 'e2026').title} · weiterfahren` : 'Vier Rennen, Punkte, Fahrer- und Teamwertung.', deco: 'M', badge: season && !sDone ? 'Läuft' : '',
         bg: 'linear-gradient(135deg, #3a2a08 0%, #0e1117 75%)', acc: '#ffd400', go: () => this.show('season') }),
@@ -628,10 +628,12 @@ const UI = {
         fieldRow('Automatisch pausieren, wenn das Fenster verdeckt/gewechselt wird', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], G.autoPause, v => { G.autoPause = v; Game.saveSettings(); })),
         h('div.hint', 'Das Pausemenü zeigt immer an, wodurch die Pause ausgelöst wurde (Taste, Lenkradknopf oder Fensterwechsel).')),
       h('div.card', h('h3', 'Speicherstand'),
-      h('p', Save.available ? 'Alle Einstellungen, Lenkradprofile und Bestzeiten werden lokal im Browser gespeichert.' : 'localStorage ist nicht verfügbar – Daten gehen beim Neuladen verloren. Nutze den Export.'),
+      h('p', Save.available ? `Alle Einstellungen, Lenkradprofile, Bestzeiten, Meisterschaft und Karrieren werden lokal im Browser gespeichert (belegt ≈ ${Save.usageKB()} KB von ≈ 5000 KB). Sichere sie ab und zu als Datei – z. B. vor dem Löschen der Browserdaten oder für einen anderen PC.` : 'localStorage ist nicht verfügbar – Daten gehen beim Neuladen verloren. Nutze die Sicherung als Datei.'),
       h('div.actions',
-        btn('Alles exportieren', () => this.showText('Export aller Spieldaten (JSON)', Save.exportAll()), 'small'),
-        btn('Importieren', () => this.promptText('Spieldaten importieren – JSON einfügen', '', (v) => { try { const n = Save.importAll(v); this.toast(`${n} Einträge importiert – Seite wird neu geladen`); setTimeout(() => location.reload(), 1200); } catch (e) { this.toast('Import fehlgeschlagen: ' + e.message); } }, true), 'small'),
+        btn('Sicherung als Datei speichern', () => Save.download(), 'small primary'),
+        btn('Sicherung aus Datei laden', () => Save.upload().then(n => { this.toast(`${n} Einträge geladen – Seite wird neu geladen`); setTimeout(() => location.reload(), 1200); }).catch(e => this.toast('Laden fehlgeschlagen: ' + e.message)), 'small'),
+        btn('Als Text exportieren', () => this.showText('Export aller Spieldaten (JSON)', Save.exportAll()), 'small'),
+        btn('Text importieren', () => this.promptText('Spieldaten importieren – JSON einfügen', '', (v) => { try { const n = Save.importAll(v); this.toast(`${n} Einträge importiert – Seite wird neu geladen`); setTimeout(() => location.reload(), 1200); } catch (e) { this.toast('Import fehlgeschlagen: ' + e.message); } }, true), 'small'),
         btn('Einstellungen zurücksetzen', () => this.confirm('Alle Einstellungen auf Standard zurücksetzen? (Lenkradprofile bleiben erhalten)', () => { Save.remove('settings'); location.reload(); }), 'small ghost'),
       )));
   },

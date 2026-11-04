@@ -8,6 +8,8 @@ const { launch } = require('./harness');
   await T.open();
   await ev(() => { ApexDebug.game.endCareer(); const S = ApexDebug.game.settings; S.graphics.autoQuality = false; S.camera.mode = 'chaseNear'; S.race.podium = false; });
   await clickText('Karriere'); await sleep(300);
+  check('Speicherplätze', await ev(() => /Speicherplatz 1/i.test(document.body.innerText) && /Speicherplatz 3/i.test(document.body.innerText)));
+  await clickText('Neue Karriere'); await sleep(300);
   check('Neue Karriere: Formular', await ev(() => /Neue Karriere/i.test(document.body.innerText) && /Startnummer/i.test(document.body.innerText)));
   await page.fill('input[placeholder="Vorname Nachname"]', 'Kai Vögele');
   await ev(() => { ApexDebug.UI._cOpts.quali = false; ApexDebug.UI._cOpts.distance = 'short'; ApexDebug.UI._cOpts.weather = 'dry'; });
@@ -17,7 +19,7 @@ const { launch } = require('./harness');
   check('Teamwahl mit drei Angeboten', p0.c && p0.c.phase === 'pick' && p0.c.offers === 3 && /Wähle dein erstes Team/i.test(p0.txt), JSON.stringify(p0.c));
   await shot('e1_karriere_teamwahl');
   await clickText('Unterschreiben'); await sleep(300);
-  const p1 = await ev(() => { const c = ApexDebug.game.career; return { phase: c.phase, team: c.team, txt: document.body.innerText, saved: !!localStorage.getItem('apexformula.v1.career') }; });
+  const p1 = await ev(() => { const c = ApexDebug.game.career; return { phase: c.phase, team: c.team, txt: document.body.innerText, saved: !!localStorage.getItem('apexformula.v1.career.1') }; });
   check('Karriere-Zentrale nach Unterschrift, gespeichert', p1.phase === 'season' && p1.team && /Rennwochenende/i.test(p1.txt) && /Teamziel/i.test(p1.txt) && p1.saved, p1.team);
   await shot('e2_karriere_uebersicht');
   // Rennwochenende (ohne Qualifying), kurz fahren, dann werten – mit protokolliertem Kontakt

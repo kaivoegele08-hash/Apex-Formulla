@@ -33,9 +33,13 @@ const Game = {
     const msg = (t) => { const e = $('bootMsg'); if (e) e.textContent = t; };
     msg('Initialisiere …');
     Save.init();
+    const migrated = Save.migrate();
+    Save.onFull = () => UI.toast('Speicher des Browsers ist voll – bitte unter Einstellungen → Allgemein eine Sicherung als Datei speichern.', 8000);
     this.settings = deepMerge(DEFAULT_SETTINGS, Save.get('settings', {}));
     this.season = Save.get('season', null);
-    this.career = Save.get('career', null); if (this.career && this.career.v !== CAREER_V) this.career = null;
+    this.careerSlot = clamp(Save.get('careerSlot', 1) | 0, 1, 3);
+    this.career = this.loadCareer(this.careerSlot);
+    if (migrated.length) setTimeout(() => UI.toast('Spielstände aktualisiert: ' + migrated.join(', '), 6000), 1500);
     // Mods aus mods/mods.js (vor dem Modul geladen) übernehmen, danach die gewählte Epoche aktivieren
     try { applyMods((window.ApexMods && window.ApexMods.list) || []); } catch (e) { console.warn('[Mods]', e); }
     applyEra(this.settings.game.era || 'e2026');
@@ -101,9 +105,19 @@ const Game = {
   // ---------------------------------------------------------------------------
   //  Karriere
   // ---------------------------------------------------------------------------
-  saveCareer() { if (this.career) Save.set('career', this.career); },
+  /** Karriere-Speicherplätze 1–3; jede Saisonende-Version wird zusätzlich als .bak gesichert */
+  loadCareer(slot) { const c = Save.get('career.' + slot, null); return c && c.v === CAREER_V ? c : null; },
+  careerInfo(slot) { const c = Save.get('career.' + slot, null); if (!c || c.v !== CAREER_V) return null; return { name: c.me.name, team: Career.teamName(c.team), season: c.seasonNo, year: c.year, era: eraOf(c.era).title, round: c.season ? c.season.round : 0, rounds: c.season ? c.season.tracks.length : 0, titles: c.stats.titles, hasBak: !!Save.get('career.' + slot + '.bak', null) }; },
+  useCareerSlot(slot) { this.careerSlot = slot; Save.set('careerSlot', slot); this.career = this.loadCareer(slot); this.careerRound = false; },
+  saveCareer() {
+    if (!this.career) return;
+    Save.set('career.' + this.careerSlot, this.career);
+    if (this.career.phase === 'offseason' && this._bakFor !== this.career.history.length) { this._bakFor = this.career.history.length; Save.set('career.' + this.careerSlot + '.bak', this.career); }
+  },
+  restoreCareerBackup(slot) { const b = Save.get('career.' + slot + '.bak', null); if (!b) return false; Save.set('career.' + slot, b); if (slot === this.careerSlot) this.career = b; return true; },
   newCareer(opts) { this.career = Career.create(opts); this.saveCareer(); },
-  endCareer() { this.career = null; this.careerRound = false; Save.set('career', null); },
+  endCareer(slot = this.careerSlot) { if (slot === this.careerSlot) { this.career = null; this.careerRound = false; } Save.remove('career.' + slot); Save.remove('career.' + slot + '.bak'); },
+  closeCareer() { this.career = null; this.careerRound = false; },
   startCareerRound() {
     const c = this.career; if (!c || c.phase !== 'season') return;
     this.seasonRound = false; this.careerRound = true; this.careerLog = { contacts: [], passes: [], pole: false };

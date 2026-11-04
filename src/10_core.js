@@ -229,8 +229,51 @@ const Save = {
   set(key, value) {
     this.memory[key] = deepClone(value);
     if (!this.available) return false;
-    try { globalThis.localStorage.setItem(this.prefix + key, JSON.stringify(value)); return true; }
-    catch (e) { console.warn('[Save] Schreiben fehlgeschlagen:', key, e); return false; }
+    const txt = JSON.stringify(value);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { globalThis.localStorage.setItem(this.prefix + key, txt); return true; }
+      catch (e) {
+        // Speicher voll: zuerst entbehrliche Daten (Ghosts, Kalibrierung, alte Sicherungen) aufräumen
+        const quota = e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014);
+        if (!quota || !this.free(attempt)) { console.warn('[Save] Schreiben fehlgeschlagen:', key, e); if (quota && this.onFull) this.onFull(key); return false; }
+      }
+    }
+    return false;
+  },
+  /** Platz schaffen: Stufe 0 Ghosts, 1 alte Sicherungen/Kalibrierung, 2 Telemetrie-Bestrunden */
+  free(level) {
+    const drop = [['ghosts'], ['lapCal', ...this.keys().filter(k => /\.bak\d?$|^corrupt\./.test(k))], ['bestLaps']][level];
+    if (!drop) return false;
+    for (const k of drop) this.remove(k);
+    console.info('[Save] Speicher voll – entfernt:', drop.join(', '));
+    return true;
+  },
+  keys() {
+    const out = [];
+    try { if (this.available) for (let i = 0; i < globalThis.localStorage.length; i++) { const k = globalThis.localStorage.key(i); if (k && k.startsWith(this.prefix)) out.push(k.slice(this.prefix.length)); } else out.push(...Object.keys(this.memory)); } catch (e) { /* egal */ }
+    return out;
+  },
+  /** Belegter Speicher in KB (ungefähr) */
+  usageKB() { let n = 0; for (const k of this.keys()) { try { n += (globalThis.localStorage.getItem(this.prefix + k) || '').length; } catch (e) { /* egal */ } } return Math.round(n * 2 / 1024); },
+  /**
+   * Schema-Version der Spielstände: bei Updates werden alte Daten umgebaut statt verworfen.
+   * Einträge, die sich nicht lesen lassen, werden als corrupt.<schlüssel> beiseitegelegt.
+   */
+  SCHEMA: 2,
+  migrate() {
+    const from = this.get('schema', 1);
+    for (const k of this.keys()) {
+      if (k === 'schema') continue;
+      try { if (this.available) JSON.parse(globalThis.localStorage.getItem(this.prefix + k)); }
+      catch (e) { const raw = globalThis.localStorage.getItem(this.prefix + k); try { globalThis.localStorage.setItem(this.prefix + 'corrupt.' + k, raw); } catch (e2) { /* egal */ } this.remove(k); this.migrated = (this.migrated || []).concat('beschädigt: ' + k); }
+    }
+    if (from < 2) {
+      // 1 → 2: Karriere in Speicherplatz 1 verschieben
+      const c = this.get('career', null);
+      if (c) { this.set('career.1', c); this.remove('career'); this.migrated = (this.migrated || []).concat('Karriere → Speicherplatz 1'); }
+    }
+    if (from !== this.SCHEMA) this.set('schema', this.SCHEMA);
+    return this.migrated || [];
   },
   remove(key) {
     delete this.memory[key];
@@ -254,6 +297,22 @@ const Save = {
     const obj = JSON.parse(text);
     if (!obj || typeof obj !== 'object' || !obj.data) throw new Error('Kein gültiger Apex-Formula-Export');
     for (const [k, v] of Object.entries(obj.data)) this.set(k, v);
+    if (!obj.data.schema) this.set('schema', 1);   // ältere Sicherung → beim nächsten Start umbauen
     return Object.keys(obj.data).length;
+  },
+  /** Sicherung als Datei herunterladen (funktioniert auch bei file://) */
+  download(name = 'apex-formula-sicherung') {
+    const blob = new Blob([this.exportAll()], { type: 'application/json' }), a = document.createElement('a');
+    const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    a.href = URL.createObjectURL(blob); a.download = `${name}-${stamp}.json`; document.body.append(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  },
+  /** Sicherungsdatei auswählen und einlesen → Promise(Anzahl Einträge) */
+  upload() {
+    return new Promise((res, rej) => {
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return rej(new Error('Keine Datei')); f.text().then(t => res(this.importAll(t))).catch(rej); };
+      inp.click();
+    });
   }
 };

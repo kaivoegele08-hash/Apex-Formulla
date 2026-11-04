@@ -17,7 +17,9 @@ if (!parts.length || !parts[0].endsWith('.html') || !parts[parts.length - 1].end
   console.error('Erwartet: erster Teil 00_head.html, letzter Teil 99_tail.html');
   process.exit(1);
 }
-const html = parts.map(f => readFileSync(join(src, f), 'utf8')).join('');
+let html = parts.map(f => readFileSync(join(src, f), 'utf8')).join('');
+// Fremdbibliotheken (vendor/) direkt einbetten → keine Internetverbindung nötig
+html = html.replace(/<!--VENDOR:([\w.-]+)-->/g, (_, f) => '<script>' + readFileSync(join(root, 'vendor', f), 'utf8').replace(/<\/script/gi, '<\\/script') + '</script>');
 mkdirSync(dist, { recursive: true });
 const out = join(dist, 'apex-formula.html');
 writeFileSync(out, html);
@@ -29,7 +31,7 @@ console.log(`gebaut: ${out} (${(statSync(out).size / 1024).toFixed(0)} KB, ${htm
 if (process.argv.includes('--zip')) {
   // Spiel + Kurzanleitung + Linux-Extras (udev-Regel für Force Feedback per WebHID)
   const zip = join(dist, 'apex-formula.zip');
-  const files = [out, join(root, 'extras', 'LIESMICH.txt'), join(root, 'extras', 'LIZENZ-enginesound.txt')];
+  const files = [out, join(root, 'extras', 'LIESMICH.txt'), join(root, 'extras', 'LIZENZ-enginesound.txt'), join(root, 'extras', 'LIZENZEN-Drittanbieter.txt')];
   const linux = join(root, 'extras', 'linux');
   if (existsSync(linux)) for (const f of readdirSync(linux).sort()) files.push(join(linux, f));
   rmSync(zip, { force: true });
