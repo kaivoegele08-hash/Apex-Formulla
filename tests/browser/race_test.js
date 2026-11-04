@@ -6,7 +6,7 @@ const { launch } = require('./harness');
   let bad = 0; const check = (n, c, i = '') => { if (!c) bad++; console.log((c ? 'OK   ' : 'FEHL ') + n + (i ? ' – ' + i : '')); };
   const ev = (f, a) => page.evaluate(f, a);
   await T.open();
-  await ev(() => { const S = ApexDebug.game.settings; S.race.laps = 1; S.race.opponents = 19; S.race.playerGrid = 'middle'; S.camera.mode = 'chaseNear'; });
+  await ev(() => { const S = ApexDebug.game.settings; S.race.laps = 1; S.race.opponents = 19; S.race.playerGrid = 'middle'; S.race.podium = false; S.camera.mode = 'chaseNear'; });
   await clickText('Schnelles Rennen'); await sleep(300);
   await shot('60_race_setup');
   await clickText('Rennen starten');
