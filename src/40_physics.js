@@ -438,7 +438,8 @@ class Vehicle {
       else if (this.gear > 1 && this.time - this.lastShiftTime > 0.2) {
         const wAvg = (W[2].omega + W[3].omega) * 0.5;
         const rpmDown = Math.abs(this.ratioOf(this.gear - 1) * wAvg) / RPM2RAD;
-        const thresh = LIM * (brk > 0.1 ? 0.92 : (thr < 0.2 ? 0.767 : 0.70));
+        // beim Bremsen früh runter – in den 1. Gang aber erst spät (Motorbremse blockiert sonst das Heck)
+        const thresh = LIM * (brk > 0.1 ? (this.gear === 2 ? 0.74 : 0.92) : (thr < 0.2 ? 0.767 : 0.70));
         if (rpmDown < thresh) this.requestShift(-1);
       }
     }

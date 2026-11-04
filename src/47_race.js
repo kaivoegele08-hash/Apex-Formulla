@@ -564,8 +564,14 @@ class RaceSession {
   }
   _stepSafetyCar(h) {
     const c = this.sc.car, v = c.vehicle, lead = (this.order || this.entries).find(e => !e.retired);
+    // Reifen nach Streckenzustand (Slicks im Starkregen → Dreher und Stillstand der ganzen Kolonne)
+    const wv = v.water || 0, cpd = wv > 0.55 ? 'wet' : wv > 0.2 ? 'inter' : 'hard';
+    if (v.compound !== cpd) v.setCompound(cpd, 90);
     c.ai.control(h, { cars: [], me: null, state: 'race', time: this.time, cap: 0 });
     v.step(h); v.events.length = 0;
+    // festgefahren / gedreht → zurück auf die Ideallinie (das SC darf die Kolonne nie blockieren)
+    c.stuckT = v.speed < 3 ? (c.stuckT || 0) + h : 0;
+    if (c.stuckT > 2 || c.ai.needsReset) { v.placeOnTrack(this.track, v.trackS, this.line.offsetAt(v.trackS)); c.ai.resetAfterRecovery(); c.stuckT = 0; }
     if (lead) { let ds = v.trackS - lead.vehicle.trackS; const L = this.track.length; if (ds < -L / 2) ds += L; if (ds > L / 2) ds -= L; c.distance = lead.distance + ds; }
   }
   _scLogic(h) {

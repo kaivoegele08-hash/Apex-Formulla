@@ -94,12 +94,21 @@ const CarGeo = {
     const fy = spec.floorY;
     // --- Lackierte Karosserie ---
     const body = [];
-    // Nase bis Cockpit-Vorderkante
-    body.push(loftGeometry([
+    // Nase bis Cockpit-Vorderkante – drei Epochen-Varianten (tief 2014/2022+, mittel 2017–21, hoch bis 2013)
+    const NOSE = [
       { z: -2.68, w: 0.09, h: 0.07, y: -0.105, n: 2.2 }, { z: -2.48, w: 0.20, h: 0.12, y: -0.088, n: 2.5 },
       { z: -2.08, w: 0.29, h: 0.19, y: -0.045, n: 2.8 }, { z: -1.62, w: 0.37, h: 0.29, y: 0.025, n: 3.0 },
       { z: -1.16, w: 0.47, h: 0.39, y: 0.075, n: 3.3 }, { z: -0.82, w: 0.60, h: 0.47, y: 0.085, n: 3.6 },
-    ], { radial: 30, sub: 4, capStart: true }));
+    ];
+    this.nose = {}; this.pylons = {};
+    for (const [key, lift] of [['low', 0], ['mid', 0.08], ['high', 0.17]]) {
+      const secs = NOSE.map(q => { const f = clamp((-0.82 - q.z) / 1.86, 0, 1); return Object.assign({}, q, { y: q.y + lift * Math.sqrt(f), h: q.h * (1 - 0.12 * f * (lift > 0.1 ? 1 : 0)) }); });
+      this.nose[key] = loftGeometry(secs, { radial: 30, sub: 4, capStart: true });
+      // Pylonen Nase → Frontflügel (bei hoher Nase lang)
+      const pyl = [], top = -0.085 + lift * 0.92, bot = -0.175, hgt = top - bot;
+      for (const x of [-0.07, 0.07]) { const p = new THREE.BoxGeometry(0.012, hgt, 0.22); p.translate(x, bot + hgt / 2, -2.58); pyl.push(p); }
+      this.pylons[key] = mergeNI(pyl);
+    }
     // Cockpitseiten (oben offen)
     this.cockpitSides = loftGeometry([
       { z: -0.82, w: 0.60, h: 0.47, y: 0.085, n: 3.6 }, { z: -0.45, w: 0.70, h: 0.47, y: 0.08, n: 3.8 },
@@ -137,14 +146,20 @@ const CarGeo = {
     for (const x of [-0.5, -0.25, 0, 0.25, 0.5]) { const f = new THREE.BoxGeometry(0.008, 0.2, 0.7); f.translate(x, fy + 0.1, 1.78); carbon.push(f); }
     // Haifischflosse
     const fin = new THREE.Shape(); fin.moveTo(0.55, 0.36); fin.lineTo(2.06, 0.66); fin.lineTo(2.1, 0.28); fin.lineTo(0.9, 0.24); fin.lineTo(0.55, 0.36);
-    const fing = new THREE.ExtrudeGeometry(fin, { depth: 0.012, bevelEnabled: false }); fing.rotateY(-Math.PI / 2); fing.translate(0.006, 0, 0); carbon.push(fing);
+    const fing = new THREE.ExtrudeGeometry(fin, { depth: 0.012, bevelEnabled: false }); fing.rotateY(-Math.PI / 2); fing.translate(0.006, 0, 0); this.fin = fing;
     // Frontflügel-Hauptblatt
-    const fw = wingGeometry(0.30, 0.07, 1.82, 0.06); fw.rotateX(0.05); fw.translate(0, -0.165, -2.86); carbon.push(fw);
-    // Pylonen Nase → Frontflügel
-    for (const x of [-0.07, 0.07]) { const p = new THREE.BoxGeometry(0.012, 0.09, 0.22); p.translate(x, -0.13, -2.58); carbon.push(p); }
+    const fw = wingGeometry(0.30, 0.07, 1.82, 0.06); fw.rotateX(0.05); fw.translate(0, -0.165, -2.86); this.fwMain = fw;
     // Heckflügel-Hauptblatt, Beam-Wing, Schwanenhals
-    const rw = wingGeometry(0.26, 0.09, 1.0, 0.07); rw.rotateX(0.12); rw.translate(0, 0.50, 2.08); carbon.push(rw);
-    const bw = wingGeometry(0.16, 0.08, 0.86, 0.05); bw.rotateX(0.18); bw.translate(0, 0.13, 2.12); carbon.push(bw);
+    const rw = wingGeometry(0.26, 0.09, 1.0, 0.07); rw.rotateX(0.12); rw.translate(0, 0.50, 2.08); this.rwMain = rw;
+    const bw = wingGeometry(0.16, 0.08, 0.86, 0.05); bw.rotateX(0.18); bw.translate(0, 0.13, 2.12); this.beam = bw;
+    // Bargeboards (1995–2021): Leitbleche vor den Seitenkästen
+    const bb = [];
+    for (const sx of [-1, 1]) {
+      const sh = new THREE.Shape(); sh.moveTo(-0.95, -0.17); sh.lineTo(-0.45, -0.17); sh.lineTo(-0.5, 0.12); sh.quadraticCurveTo(-0.8, 0.14, -0.95, -0.02); sh.lineTo(-0.95, -0.17);
+      const g = new THREE.ExtrudeGeometry(sh, { depth: 0.01, bevelEnabled: false }); g.rotateY(-Math.PI / 2); g.translate(sx * 0.62, 0, 0); bb.push(g);
+      const t = new THREE.BoxGeometry(0.16, 0.01, 0.3); t.translate(sx * 0.68, 0.11, -0.7); bb.push(t);
+    }
+    this.barge = mergeNI(bb);
     const swan = new THREE.BoxGeometry(0.03, 0.42, 0.06); swan.translate(0, 0.33, 2.22); carbon.push(swan);
     // Crash-Struktur hinten
     const crash = new THREE.BoxGeometry(0.16, 0.12, 0.42); crash.translate(0, 0.04, 2.16); carbon.push(crash);
@@ -164,12 +179,12 @@ const CarGeo = {
     this.carbon = mergeNI(carbon);
     this.mirrorGlass = new THREE.PlaneGeometry(0.115, 0.048);
     // Endplatten (lackiert)
-    const endp = [];
+    const endF = [], endR = [];
     for (const sx of [-1, 1]) {
-      const ef = new THREE.BoxGeometry(0.012, 0.17, 0.48); ef.translate(sx * 0.915, -0.105, -2.66); endp.push(ef);
-      const er = new THREE.BoxGeometry(0.012, 0.44, 0.52); er.translate(sx * 0.505, 0.50, 2.24); endp.push(er);
+      const ef = new THREE.BoxGeometry(0.012, 0.17, 0.48); ef.translate(sx * 0.915, -0.105, -2.66); endF.push(ef);
+      const er = new THREE.BoxGeometry(0.012, 0.44, 0.52); er.translate(sx * 0.505, 0.50, 2.24); endR.push(er);
     }
-    this.endplates = mergeNI(endp);
+    this.endF = mergeNI(endF); this.endR = mergeNI(endR);
     // Bewegliche Elemente: Frontflügel-Klappen (2) und Heckflügel-Klappe – Drehpunkt an der Vorderkante
     this.fwFlap1 = wingGeometry(0.17, 0.08, 1.80, 0.07);
     this.fwFlap2 = wingGeometry(0.13, 0.09, 1.78, 0.08);
@@ -193,7 +208,8 @@ const CarGeo = {
       const rimR = 0.229;
       const tread = new THREE.CylinderGeometry(R - 0.004, R - 0.004, W - 0.05, 40, 1, true); tread.rotateZ(Math.PI / 2);
       const shoulders = [];
-      for (const s of [-1, 1]) { const t = new THREE.TorusGeometry(R - 0.028, 0.026, 8, 40); t.rotateY(Math.PI / 2); t.translate(s * (W / 2 - 0.026), 0, 0); shoulders.push(t); }
+      // Schultern: UV auf (0,0) → die Rillen-Textur (1998–2008) bleibt auf der Lauffläche
+      for (const s of [-1, 1]) { const t = new THREE.TorusGeometry(R - 0.028, 0.026, 8, 40); t.rotateY(Math.PI / 2); t.translate(s * (W / 2 - 0.026), 0, 0); t.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(t.attributes.position.count * 2), 2)); shoulders.push(t); }
       const side = new THREE.RingGeometry(rimR, R - 0.03, 40, 1);
       const rimFace = new THREE.CircleGeometry(rimR, 32);
       const barrel = new THREE.CylinderGeometry(rimR - 0.005, rimR - 0.005, W * 0.86, 28, 1, true); barrel.rotateZ(Math.PI / 2);
@@ -313,6 +329,33 @@ function tyreTempColor(T, c) {
   if (T < lo - 25) return '#2f6bff'; if (T < lo) return '#38c6ff'; if (T <= hi) return '#2fe36b'; if (T < hi + 20) return '#ffb02e'; return '#ff3b3b';
 }
 
+/**
+ * Bauform je Epoche: Nasenhöhe, Frontflügelbreite, Heckflügel (schmal/hoch 2009–2016),
+ * Haifischflosse, Beam-Wing (verboten 2014–2021), Bargeboards (1995–2021), Rillenreifen (1998–2008)
+ */
+function carLookFor(E) {
+  const y = (E && E.year) || 2026;
+  return {
+    nose: y < 2014 ? 'high' : (y >= 2017 && y < 2022) ? 'mid' : 'low',
+    fw: y < 2009 ? 0.78 : 1,
+    rwX: y < 2009 ? 1 : y < 2017 ? 0.76 : 1, rwY: y < 2009 ? 0.05 : y < 2017 ? 0.1 : 0,
+    fin: (y >= 2008 && y < 2011) || y >= 2017,
+    beam: y < 2014 || y >= 2022,
+    barge: y >= 1995 && y < 2022,
+    grooves: y >= 1998 && y < 2009,
+  };
+}
+let _grooveTex = null;
+/** Lauffläche mit vier Längsrillen (Rillenreifen 1998–2008) */
+function grooveTex() {
+  if (_grooveTex) return _grooveTex;
+  const c = document.createElement('canvas'); c.width = 4; c.height = 128;
+  const g = c.getContext('2d'); g.fillStyle = '#1b1b1d'; g.fillRect(0, 0, 4, 128);
+  g.fillStyle = '#060606'; for (const v of [0.2, 0.4, 0.6, 0.8]) g.fillRect(0, Math.round(v * 128) - 3, 4, 6);
+  _grooveTex = new THREE.CanvasTexture(c); _grooveTex.colorSpace = THREE.SRGBColorSpace;
+  return _grooveTex;
+}
+
 /** Ein sichtbares Fahrzeug */
 class CarVisual {
   constructor(team, number, { detail = 'high', physical = true } = {}) {
@@ -330,7 +373,14 @@ class CarVisual {
     cast.push(add(G.body, this.paint));
     this.cockpit = add(G.cockpitSides, new THREE.MeshStandardMaterial(Object.assign({}, paintParams, { side: THREE.DoubleSide })));
     cast.push(add(G.carbon, this.carbonMat));
-    cast.push(add(G.endplates, this.endMat));
+    // Epochen-Teile: Nase (3 Varianten), Frontflügel- und Heckflügel-Baugruppen, Haifischflosse, Beam-Wing, Bargeboards
+    this.noseMesh = {}; this.pylonMesh = {};
+    for (const k of ['low', 'mid', 'high']) { cast.push(this.noseMesh[k] = add(G.nose[k], this.paint)); this.pylonMesh[k] = add(G.pylons[k], this.carbonMat); }
+    this.fwGroup = new THREE.Group(); root.add(this.fwGroup); this.fwInner = new THREE.Group(); this.fwGroup.add(this.fwInner);
+    cast.push(add(G.fwMain, this.carbonMat, this.fwInner)); add(G.endF, this.endMat, this.fwInner);
+    this.rwGroup = new THREE.Group(); root.add(this.rwGroup); this.rwInner = new THREE.Group(); this.rwGroup.add(this.rwInner);
+    cast.push(add(G.rwMain, this.carbonMat, this.rwInner)); cast.push(add(G.endR, this.endMat, this.rwInner));
+    this.finMesh = add(G.fin, this.carbonMat); this.beamMesh = add(G.beam, this.carbonMat); this.bargeMesh = add(G.barge, this.carbonMat);
     mid.push(this.cockpit);
     mid.push(this.haloMesh = add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
     fine.push(add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false));
@@ -342,10 +392,10 @@ class CarVisual {
     // Bewegliche Flügelklappen
     this.fwFlaps = [];
     for (const [geo, z, y, a] of [[G.fwFlap1, -2.62, -0.135, 0.28], [G.fwFlap2, -2.47, -0.085, 0.52]]) {
-      const pv = new THREE.Group(); pv.position.set(0, y, z); root.add(pv);
+      const pv = new THREE.Group(); pv.position.set(0, y, z); this.fwInner.add(pv);
       add(geo, this.carbonMat, pv); pv.rotation.x = a; pv.userData.base = a; this.fwFlaps.push(pv);
     }
-    this.rwPivot = new THREE.Group(); this.rwPivot.position.set(0, 0.62, 2.20); root.add(this.rwPivot);
+    this.rwPivot = new THREE.Group(); this.rwPivot.position.set(0, 0.62, 2.20); this.rwInner.add(this.rwPivot);
     add(G.rwFlap, this.endMat, this.rwPivot);
     // Rücklicht
     this.lightMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1010, emissiveIntensity: 0 });
@@ -358,7 +408,7 @@ class CarVisual {
     root.add(this.helmet);
     // Räder
     this.wheels = [];
-    const tyreMat = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.88 });
+    const tyreMat = this.tyreMat = new THREE.MeshStandardMaterial({ color: 0x1b1b1d, roughness: 0.88 });
     const barrelMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.6, metalness: 0.4, side: THREE.DoubleSide });
     for (let i = 0; i < 4; i++) {
       const front = i < 2, left = i % 2 === 0, sgn = left ? -1 : 1;
@@ -423,6 +473,13 @@ class CarVisual {
     for (const r of this.rods) { if (!r.a0) r.a0 = r.a.clone(); r.a.set(r.a0.x * sx, r.a0.y, r.a0.z * sz); }
     if (this.haloMesh) this.haloMesh.visible = E.halo !== false;
     this.haloOn = E.halo !== false;
+    // Bauform der Epoche (Mods: nach Jahr)
+    const L = this.look = carLookFor(E);
+    for (const k in this.noseMesh) { this.noseMesh[k].visible = k === L.nose; this.pylonMesh[k].visible = k === L.nose; }
+    this.fwInner.scale.x = L.fw;
+    this.rwInner.scale.x = L.rwX; this.rwInner.position.y = L.rwY;
+    this.finMesh.visible = L.fin; this.beamMesh.visible = L.beam; this.bargeMesh.visible = L.barge;
+    this.tyreMat.map = L.grooves ? grooveTex() : null; this.tyreMat.color.setHex(L.grooves ? 0xffffff : 0x1b1b1d); this.tyreMat.needsUpdate = true;
   }
 
   /** Schatten nur von den großen Teilen (Kleinteile verdoppeln sonst die Draw Calls im Schattenpass) */

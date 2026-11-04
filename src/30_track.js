@@ -226,6 +226,29 @@ class TrackModel {
         this.BD[s][j] = Math.max(this.AE[s][j] + 1.2, Math.min(sm, lim2[j]));
       }
     }
+    this._smoothEdges();
+  }
+  /**
+   * Übergänge in Fahrtrichtung glätten: Randsteine laufen an ihren Enden flach aus, das Kiesbett sinkt
+   * erst hinter dem breitesten Randstein der Umgebung ein (sonst entstehen an Abschnittsgrenzen
+   * Stufen von 5–8 cm, die leichte Autos ohne Abtrieb aushebeln)
+   */
+  _smoothEdges() {
+    const N = this.N, mk = (T) => [new T(N), new T(N)];
+    this.KF = mk(Float32Array); this.SK0 = mk(Float32Array); this.SKD = mk(Float32Array);
+    const ramp = Math.max(1, Math.round(5 / this.ds)), W = Math.max(2, Math.round(10 / this.ds));
+    for (let s = 0; s < 2; s++) {
+      const kt = this.kerbT[s], mx = new Float32Array(N), dep = new Float32Array(N);
+      for (let j = 0; j < N; j++) {
+        if (kt[j]) { let d = 1; while (d <= ramp && kt[(j + d) % N] && kt[(j - d + N) % N]) d++; this.KF[s][j] = clamp((d - 0.5) / ramp, 0, 1); }
+        let m = 0; for (let k = -W; k <= W; k++) m = Math.max(m, this.AE[s][(j + k + N) % N]); mx[j] = m;
+        dep[j] = SURFACES[this.runT[s][j]].sink || 0;
+      }
+      for (let j = 0; j < N; j++) {
+        let a = 0, b = 0; for (let k = -W; k <= W; k++) { a += mx[(j + k + N) % N]; b += dep[(j + k + N) % N]; }
+        this.SK0[s][j] = a / (2 * W + 1); this.SKD[s][j] = b / (2 * W + 1);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -385,8 +408,9 @@ class TrackModel {
       surf = kt === 2 ? SURF.KERB_SAW : SURF.KERB;
       const kw = ke - hw, u = (a - hw) / kw;
       const win = smoothstep(0, 0.12, u) * (1 - smoothstep(0.88, 1, u));
-      h += KERB_H[kt] * win;
-      dhda += KERB_H[kt] * ((u < 0.12 ? 1 : (u > 0.88 ? -1 : 0)) * 8 / kw);
+      const kf = this.KF ? lerp(this.KF[side][j], this.KF[side][j1], f) : 1;
+      h += KERB_H[kt] * win * kf;
+      dhda += KERB_H[kt] * kf * ((u < 0.12 ? 1 : (u > 0.88 ? -1 : 0)) * 8 / kw);
       const sd = SURFACES[surf];
       if (kt === 2) { const ph = s / sd.vibLen; h += nz * sd.vibAmp * (Math.abs((ph - Math.floor(ph)) * 2 - 1) - 0.5) * win; }
       else h += nz * sd.vibAmp * 0.5 * Math.sin(s * Math.PI * 2 / sd.vibLen) * win;
@@ -406,7 +430,8 @@ class TrackModel {
     } else if (a <= bd) {
       surf = this.runT[side][jn];
       const sd = SURFACES[surf];
-      if (sd.sink) { const t = smoothstep(ae, ae + 0.8, a); h -= sd.sink * t; dhda -= sd.sink * (a < ae + 0.8 ? 1.2 / 0.8 : 0); }
+      const sk = this.SKD ? lerp(this.SKD[side][j], this.SKD[side][j1], f) : (sd.sink || 0);
+      if (sk > 0) { const a0 = this.SK0 ? lerp(this.SK0[side][j], this.SK0[side][j1], f) : ae; const t = smoothstep(a0, a0 + 0.8, a); h -= sk * t; dhda -= sk * (a > a0 && a < a0 + 0.8 ? 1.2 / 0.8 : 0); }
       h += nz * sd.vibAmp * noise1(s / sd.vibLen + a * 0.53);
     } else {
       surf = SURF.GRASS;

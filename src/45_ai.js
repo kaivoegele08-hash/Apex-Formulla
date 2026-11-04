@@ -17,7 +17,7 @@ const AI_LIMITS = {
 const AI_LIMITS_DEFAULT = Object.assign({}, AI_LIMITS);   // Standardauto (Epoche 2026)
 
 /** Schalter für Verhaltensweisen (Tests/Feinabstimmung) */
-const AI_TUNE = { draft: true, defend: true, door: true, lateBrake: true };
+const AI_TUNE = { brakeMod: true, draft: true, defend: true, door: true, lateBrake: true, edgeYield: false, startCare: true, dirtyAir: true, minCurv: true };   // edgeYield: im Test (36 Starts) schlechter
 
 class RacingLine {
   /** margin = Abstand der Fahrzeugmitte zur weißen Linie (m) */
@@ -42,6 +42,7 @@ class RacingLine {
       }
     }
     sync();
+    if (AI_TUNE.minCurv) this._refine(T, off, lim, px, pz);
     this.X = Float32Array.from(px); this.Z = Float32Array.from(pz);
     // Bogenlänge und Krümmung der Linie (3-Punkt-Kreis über ±3 Samples, geglättet)
     this.DS = new Float32Array(N); this.K = new Float32Array(N);
@@ -56,6 +57,38 @@ class RacingLine {
     }
     for (let j = 0; j < N; j++) { let s = 0; for (let q = -2; q <= 2; q++) s += kr[(j + q + N) % N]; this.K[j] = s / 5; }
     this.profiles = new Map();
+  }
+  /**
+   * Feinschliff: echte Krümmung (Umkreis über ±4 Punkte) minimieren statt nur zu glätten.
+   * Die reine Glättung zieht die Linie auf durchgehend gleichsinnigen Kurven nach innen (kürzester Weg);
+   * hier darf jeder Punkt quer wandern, wenn die Summe κ² seiner Umgebung dadurch sinkt.
+   */
+  _refine(T, off, lim, px, pz) {
+    const N = this.N, st = 4;
+    const kap = (a, b, c) => {
+      const ax = px[a], az = pz[a], bx = px[b], bz = pz[b], cx = px[c], cz = pz[c];
+      const cr = (bx - ax) * (cz - az) - (bz - az) * (cx - ax), den = Math.hypot(bx - ax, bz - az) * Math.hypot(cx - bx, cz - bz) * Math.hypot(cx - ax, cz - az);
+      return den > 1e-9 ? 2 * cr / den : 0;
+    };
+    const local = (j) => { let c = 0; for (let q = -st; q <= st; q += st) { const m = (j + q + N) % N; const k = kap((m - st + N) % N, m, (m + st) % N); c += k * k; } return c; };
+    let step = 0.6;
+    for (let it = 0; it < 140; it++) {
+      for (let j = 0; j < N; j++) {
+        const o0 = off[j], c0 = local(j);
+        for (const d of [step, -step]) {
+          const o1 = clamp(o0 + d, -lim[j], lim[j]); if (o1 === o0) continue;
+          off[j] = o1; px[j] = T.X[j] + T.RX[j] * o1; pz[j] = T.Z[j] + T.RZ[j] * o1;
+          if (local(j) < c0 - 1e-12) break;
+          off[j] = o0; px[j] = T.X[j] + T.RX[j] * o0; pz[j] = T.Z[j] + T.RZ[j] * o0;
+        }
+      }
+      if (it % 40 === 39) step *= 0.5;
+    }
+    // leicht nachglätten (Zacken der Koordinatensuche)
+    for (let it = 0; it < 30; it++) for (let j = 0; j < N; j++) {
+      const a = (j - 1 + N) % N, b = (j + 1) % N, d = ((px[a] + px[b]) * 0.5 - px[j]) * T.RX[j] + ((pz[a] + pz[b]) * 0.5 - pz[j]) * T.RZ[j];
+      off[j] = clamp(off[j] + 0.5 * d, -lim[j], lim[j]); px[j] = T.X[j] + T.RX[j] * off[j]; pz[j] = T.Z[j] + T.RZ[j] * off[j];
+    }
   }
 
   /** Geschwindigkeitsprofil für einen Griff-Faktor (1 = Fahrzeuggrenze) */
@@ -184,7 +217,7 @@ class AIDriver {
       const o = lead.vehicle, closing = v.vLong - o.vLong;
       const faster = lead.ai ? (this.speedProf.pred[j] > lead.ai.speedProf.pred[o.trackIdx] * 0.995 || closing > 1.5) : (closing > 0.4 || leadDs < 16);
       // Gegen den Spieler: Freunde greifen fairer an, Rivalen härter (Karriere-Beziehung relPlayer −1…1)
-      const aggr = clamp(P.aggression + (lead.player ? 0.25 - 0.3 * (this.relPlayer || 0) : 0), 0, 1);
+      const aggr = clamp(P.aggression + (lead.player ? 0.25 - 0.3 * (this.relPlayer || 0) : 0), 0, 1) * (AI_TUNE.startCare && time - this.launchAt < 25 ? 0.55 : 1);
       // Kurve voraus? Dann nur weiter angreifen, wenn schon neben dem Vordermann
       let kAhead = 0; for (let q = 4; q < 20 + v.vLong * 0.5; q += 4) kAhead = Math.max(kAhead, Math.abs(line.K[(j + q) % N]));
       if (this.passSide && kAhead > 0.0075 && leadDs > 4.5) { this.passSide = 0; this.passCool = 1.2; }
@@ -207,7 +240,9 @@ class AIDriver {
       const gapC = leadDs - (this.scGap || 6.3);
       const sideBySide = Math.abs(o.lateral - v.lateral) > 2.6 && Math.abs(o.lateral - (lineOff + this.latWant)) > 2.6;
       // eigene Bremsfähigkeit (75 % der gemessenen Grenze) – nicht übervorsichtig, sonst bilden sich „Züge“
-      const LIM = AI_LIMITS, bMe = Math.min(LIM.brk0 + LIM.brkAero * v.vLong * v.vLong, LIM.brkMax) * G0 * (this.noPass ? 0.5 : 0.75);
+      // Startphase (erste 25 s): kalte Reifen und dichtes Feld → mit dem echten Griff und Reserve rechnen
+      const startPh = AI_TUNE.startCare && time - this.launchAt < 25;
+      const LIM = AI_LIMITS, bMe = Math.min(LIM.brk0 + LIM.brkAero * v.vLong * v.vLong, LIM.brkMax) * G0 * (this.noPass ? 0.5 : 0.75) * (startPh ? Math.min(1, this.dmgF) * 0.82 : 1);
       this.followV = sideBySide ? Infinity : Math.sqrt(vL * vL + 2 * bMe * Math.max(0, gapC)) + (gapC > 0 ? 0 : gapC * 1.5);
     } else { this.followV = Infinity; if (this.passSide && this.passT > 2) this.passSide = 0; }
     this.followV = Math.min(this.followV, emergency);
@@ -252,6 +287,9 @@ class AIDriver {
     this.latWant = cl - lineOff;
     // eingeklemmt (kein Platz zum Ausweichen) oder hinten in einer Kurve nebeneinander → nachgeben
     this.yieldF = tight || squeezed ? 0.92 : (along && Math.abs(raw - cl) > 0.4) || (alongBehind && Math.abs(line.K[(j + 15) % N]) > 0.004) ? 0.94 : along ? 0.97 : 1;
+    // Nebeneinander in eine Kurve und an den Rand gedrückt (Spur bis zur weißen Linie): zurückstecken statt abfliegen
+    const edged = latMin > hw - 1.8 || latMax < -hw + 1.8;
+    if (AI_TUNE.edgeYield && cornerSoon && (along || alongBehind) && (edged || squeezed)) this.yieldF = Math.min(this.yieldF, 0.85);
   }
 
   /** Pro Physikschritt: Eingaben setzen. ctx = { cars, me, state: 'grid'|'race'|'free', time } */
@@ -313,6 +351,9 @@ class AIDriver {
     this.thr += clamp(thrT - this.thr, -h * 30, h * 9);
     inp.throttle = this.thr;
     inp.brake = err < -0.6 ? clamp(-err * 0.23, 0, 1) : 0;
+    // Bremse dosieren: ABS kennt nur Längsschlupf – beim Anbremsen in die Kurve (Kombischlupf) Druck lösen,
+    // sonst blockiert das Heck (v. a. Autos ohne Abtrieb, 1990) und das Auto dreht sich
+    if (AI_TUNE.brakeMod && inp.brake > 0) { const sb = Math.max(v.wheels[0].sComb, v.wheels[1].sComb, rs * 1.15); if (sb > 1.3) inp.brake *= clamp(2.3 - sb, 0.3, 1); }
     inp.clutch = 0;
     // Festgefahren / falsche Richtung → Rücksetzen anfordern (die Rennlogik prüft, ob Platz ist)
     const head = v._fwd.x * T.TX[j] + v._fwd.z * T.TZ[j];
@@ -328,7 +369,9 @@ class AIDriver {
     // Aero-Schaden, Mischung und Reifenverschleiß bestimmen das Tempoprofil
     const wv = this.v.water || 0, cpd = COMPOUNDS[this.v.compound], wetF = 1 - cpd.wetLoss * wv - cpd.dryPenalty * (1 - wv);
     const W = this.v.wheels, tyreF = wetF * (cpd.mu / 1.84) * (W.reduce((a, w) => a + w.tyre.wearFactor() * Math.min(1, w.tyre.gripT + 0.015), 0) / 4);
-    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * tyreF * (1 - this.caution) * (1 - 0.06 * wv) * 200) / 200;
+    // verwirbelte Luft hinter einem Auto kostet Frontabtrieb → Kurven etwas langsamer (sonst Untersteuern ins Kiesbett)
+    const da = AI_TUNE.dirtyAir ? this.v.dirtyAir || 0 : 0;
+    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * tyreF * (1 - this.caution) * (1 - 0.06 * wv) * (1 - 0.07 * da) * 200) / 200;
     if (f !== this.dmgF) { this.dmgF = f; this.speedProf = this.line.profile(this.prof.skill * f * (this.v.trackGrip || 1)); }
   }
   /**
