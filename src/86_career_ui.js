@@ -89,7 +89,10 @@ Object.assign(UI, {
       of.mate ? h('p', 'Teamkollege: ', h('b', of.mate)) : null,
       h('p', `Laufzeit: ${of.years} ${of.years === 1 ? 'Saison' : 'Saisons'} · Gehalt ${fmtNum(of.salary / 1000, 1)} Mio.`),
       of.cond ? h('p', { style: { color: '#ffb02e' } }, 'Bedingung: ', of.cond.text) : null,
-      h('div.actions', btn(label, onSign, 'primary small')));
+      of.lead ? h('p', { style: { color: '#2fe36b' } }, '★ Fahrer Nummer 1 (Teamorder zu deinen Gunsten)') : null,
+      h('div.actions', btn(label, onSign, 'primary small')),
+      !of.stay && !of.negotiated && c.phase !== 'pick' ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' } }, h('small', { style: { color: '#7d8898', alignSelf: 'center' } }, 'Nachverhandeln (einmal):'),
+        ...[['salary', 'Mehr Gehalt'], ['years', 'Längere Laufzeit'], ['lead', 'Status Nr. 1']].map(([w, l]) => btn(l, () => { const r = Career.negotiate(c, of, w); Game.saveCareer(); this.toast(r.msg, 4200); this.show('career', { noHistory: true }); }, 'small ghost'))) : of.negotiated ? h('small', { style: { color: '#7d8898' } }, 'Bereits verhandelt') : null);
   },
   _careerPick(c) {
     return h('section.screen.solid',
@@ -118,12 +121,13 @@ Object.assign(UI, {
     const S = c.season, table = Season.driverTable(S), mi = table.findIndex(d => d.player), team = TEAMS.find(t => t.id === c.team) || TEAMS[0];
     const next = S.tracks[S.round], nextT = TRACKS[next] ? Game.getTrackModel(next) : null;
     const unread = c.feed.filter(p => p.aboutMe && p.from && !p.replied).length;
-    const tabs = h('div.chips', ...[['overview', 'Übersicht'], ['news', `Social Media${unread ? ` (${unread})` : ''}`], ['drivers', 'Fahrer & Beziehungen'], ['teams', 'Teams'], ['history', 'Laufbahn']].map(([id, label]) =>
+    const tabs = h('div.chips', ...[['overview', 'Übersicht'], ['news', `Social Media${unread ? ` (${unread})` : ''}`], ['dev', `Entwicklung${Career.dev(c).pts >= Career.devCost(0) ? ' ●' : ''}`], ['drivers', 'Fahrer & Beziehungen'], ['teams', 'Teams'], ['history', 'Laufbahn']].map(([id, label]) =>
       h('div.chip' + (id === tab ? '.on' : ''), { onclick: () => { AudioSys.uiClick(); this.show('career', { noHistory: true, tab: id }); } }, h('span', label))));
     let body;
     if (tab === 'news') body = this._careerNews(c);
     else if (tab === 'drivers') body = this._careerDrivers(c);
     else if (tab === 'teams') body = this._careerTeams(c);
+    else if (tab === 'dev') body = this._careerDev(c);
     else if (tab === 'history') body = this._careerHistory(c);
     else body = this._careerOverview(c, opts, table, mi, nextT);
     return h('section.screen.solid',
@@ -131,7 +135,8 @@ Object.assign(UI, {
         h('span', { style: { color: '#7d8898' } }, `Saison ${c.year} · Runde ${Math.min(S.round + 1, S.tracks.length)}/${S.tracks.length} · ${eraOf(c.era).title}`)),
       tabs, h('div', { style: { height: '12px' } }),
       h('div.scroll', { style: { flex: '1' } }, body),
-      h('div.actions', nextT ? btn(`Rennwochenende: ${nextT.name}`, () => Game.startCareerRound(), 'primary', '▶') : null, nextT ? btn('Fahrzeug-Setup', () => { Game.settings.game.track = next; this.show('setup'); }) : null,
+      h('div.actions', nextT ? btn(`Rennwochenende: ${nextT.name}`, () => Game.startCareerRound(), 'primary', '▶') : null,
+        nextT ? btn(Career.practiced(c) ? 'Freies Training ✔' : `Freies Training (${c.practice && c.practice.round === S.round ? c.practice.laps : 0}/3)`, () => Game.startCareerPractice()) : null, nextT ? btn('Fahrzeug-Setup', () => { Game.settings.game.track = next; this.show('setup'); }) : null,
         btn('Hauptmenü', () => this.show('main', { noHistory: true }), 'ghost'),
         btn('Speicherplätze', () => { Game.closeCareer(); this.show('career', { noHistory: true }); }, 'ghost')),
     );
@@ -146,7 +151,7 @@ Object.assign(UI, {
     const goalPos = mi >= 0 ? mi + 1 : '–';
     return h('div.row', { style: { alignItems: 'flex-start' } },
       h('div.col', { style: { flex: '1 1 520px' } },
-        sum ? h('div.hint', `Letztes Rennen: ${sum.retired ? 'ausgeschieden' : 'P' + sum.pos} · +${sum.pts} Punkte · WM-Platz ${sum.tablePos}`) : null,
+        sum ? h('div.hint', `Letztes Rennen: ${sum.retired ? 'ausgeschieden' : 'P' + sum.pos} · +${sum.pts} Punkte · WM-Platz ${sum.tablePos}${c.lastDevGain ? ` · +${c.lastDevGain} Entwicklungspunkte` : ''}`) : null,
         nextT ? h('div.card', h('h3', `Nächstes Rennen · Runde ${S.round + 1} von ${S.tracks.length}`), h('h2.ital', { style: { margin: '0 0 6px' } }, nextT.name),
           h('p', nextT.def.character), h('p', `${Season.lapsFor(S, nextT)} Runden · Qualifying ${c.settings.quali ? c.settings.qualiMin + ' min' : 'aus'} · Wetter ${WEATHER_TYPES[c.settings.weather] ? WEATHER_TYPES[c.settings.weather].name : c.settings.weather}`)) : null,
         h('div.card', h('h3', 'Ziele & Vertrag'),
@@ -198,6 +203,23 @@ Object.assign(UI, {
         h('td.num', String(d.age)), h('td', meter(d.rating * 100, 100, '#38c6ff')), h('td', (PERSONALITIES[d.pers] || {}).name || ''), h('td.num', String(d.seasonPts)), h('td', relBar(d.rel))));
     }
     return h('div', h('div.hint', 'Freunde (ab +25) fahren fairer gegen dich und machen Platz, Rivalen (unter −25) verteidigen härter und greifen aggressiver an. Kontakte, bei denen du von hinten kommst, kosten viel Sympathie – faire Duelle und nette Worte in Social Media bringen sie zurück.'), tbl);
+  },
+
+  _careerDev(c) {
+    const D = Career.dev(c), team = TEAMS.find(t => t.id === c.team) || TEAMS[0];
+    const cards = Object.entries(DEV_PARTS).map(([k, P]) => {
+      const lv = D.lv[k] || 0, cost = Career.devCost(lv), max = lv >= DEV_MAX;
+      return h('div.card', { style: { flex: '1 1 260px', borderLeft: `5px solid ${team.colors[0]}` } },
+        h('h3', P.name), h('p', P.desc),
+        h('p', 'Stufe ', h('b', `${lv} / ${DEV_MAX}`), ' ', meter(lv, DEV_MAX, team.colors[0])),
+        h('div.actions', btn(max ? 'Ausgebaut' : `Entwickeln (${cost} Punkte)`, () => { if (Career.buyUpgrade(c, k)) { Game.saveCareer(); this.toast(`${P.name} Stufe ${lv + 1} eingebaut`); } else this.toast(max ? 'Schon voll ausgebaut' : 'Zu wenig Entwicklungspunkte'); this.show('career', { noHistory: true, tab: 'dev' }); }, max || D.pts < cost ? 'small ghost' : 'primary small')));
+    });
+    const sum = Object.values(D.lv).reduce((a, b) => a + b, 0);
+    return h('div',
+      h('div.card', h('h3', `Entwicklungspunkte: ${D.pts}`),
+        h('p', `Nach jedem Rennen bekommt das Team Punkte (Budget von ${team.name} plus Bonus für Punkte-Platzierungen und Podien${c.lastDevGain ? `; zuletzt +${c.lastDevGain}` : ''}). Jede Runde im Freien Training bringt +1 (bis zu 3 je Wochenende); nach 3 Runden passt das Setup und du bist im Rennen zusätzlich etwas schneller.`),
+        h('p', `Eingebaute Stufen wirken sofort als Griffvorteil deines Autos (zusammen bis etwa +2,7 %). Am Saisonende fließen sie in die Teamstärke ein (+${fmtNum(sum * 0.6, 1)} % bei ${sum} Stufen), dann beginnt die Entwicklung von vorn.`)),
+      h('div.row', { style: { alignItems: 'stretch', flexWrap: 'wrap' } }, cards));
   },
 
   _careerTeams(c) {

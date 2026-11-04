@@ -331,6 +331,7 @@ class AIDriver {
     // Ausbremsen: innen neben dem Gegner etwas später bremsen
     if (AI_TUNE.lateBrake && this.passSide && this.leader && this.leadDs < 5 && kAbs > 0.004 && Math.sign(line.K[jt]) === this.passSide) vt *= 1.012;
     vt *= this.yieldF;
+    if (this.letByUntil && ctx.time < this.letByUntil) { vt *= 0.9; this.passSide = 0; }   // Teamorder: Teamkollegen vorbeilassen
     vt = Math.min(vt, this.followV);
     // Safety-Car-Kolonne: sanft auf 15 m hinter dem Vordermann (Bremsweg mit 8 m/s²)
     if (this.queue) {

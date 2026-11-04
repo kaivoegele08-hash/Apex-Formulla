@@ -129,7 +129,7 @@ Object.assign(UI, {
       opt('Qualifying', toggle([{ value: 0, label: 'Aus' }, { value: 3, label: '3 min' }, { value: 5, label: '5 min' }, { value: 10, label: '10 min' }], set.quali || 0, v => st('quali', v)), set.quali ? set.quali + ' min' : 'aus'),
       opt('KI-Gegner', toggle([0, 5, 9, 13, 19].map(n => ({ value: n, label: String(n) })), set.ai, v => st('ai', v)), String(set.ai)),
       opt('Wetter', chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), set.weather, v => st('weather', v)), (WEATHER_TYPES[set.weather] || {}).name || set.weather),
-      opt('Tageszeit', toggle([['track', 'Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), set.tod, v => st('tod', v)), set.tod),
+      opt('Tageszeit', toggle([['track', 'Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung'], ['night', 'Nacht']].map(([value, label]) => ({ value, label })), set.tod, v => st('tod', v)), set.tod),
       opt('Schaden', toggle([{ value: 'off', label: 'Aus' }, { value: 'reduced', label: 'Reduziert' }, { value: 'full', label: 'Voll' }], set.damage, v => st('damage', v)), set.damage),
       opt('Safety Car', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], set.safetyCar !== false, v => st('safetyCar', v)), set.safetyCar !== false ? 'an' : 'aus'));
     const myCar = h('div.card', h('h3', 'Dein Auto'),

@@ -67,6 +67,13 @@ const Tex = {
     });
   },
   noiseFill2(g, w, h, a) { const r = makeRng(7); for (let i = 0; i < 2000; i++) { g.fillStyle = `rgba(0,0,0,${r() * a})`; g.fillRect(r() * w, r() * h, 2, 2); } },
+  sand() {
+    return this.make('sand', 512, 512, (g, w, h) => {
+      const r = makeRng(23);
+      this.noiseFill(g, w, h, '#c9a76c', 0.16, 30000, 2.2, r);
+      for (let i = 0; i < 260; i++) { g.strokeStyle = `rgba(${150 + r() * 40},${115 + r() * 30},${70 + r() * 20},0.25)`; g.lineWidth = 2; g.beginPath(); const y = r() * h; g.moveTo(0, y); g.bezierCurveTo(w * 0.3, y + (r() - 0.5) * 30, w * 0.6, y + (r() - 0.5) * 30, w, y); g.stroke(); }
+    });
+  },
   grass() {
     return this.make('grass', 512, 512, (g, w, h) => {
       const r = makeRng(21);
@@ -369,7 +376,7 @@ class ParticleSystem {
 // ---------------------------------------------------------------------------
 const Render = {
   renderer: null, canvas: null, scene: null, camera: null, sky: null, sun: null, hemi: null,
-  quality: null, sunDir: new THREE.Vector3(), envRT: null, pmrem: null,
+  quality: null, sunDir: new THREE.Vector3(), lightDir: new THREE.Vector3(), night: false, envRT: null, pmrem: null,
   fx: null, width: 1, height: 1, gfx: null,
 
   init(canvas, gfx) {
@@ -434,6 +441,10 @@ const Render = {
     this.sunDir.setFromSphericalCoords(1, phi, theta);
     u.sunPosition.value.copy(this.sunDir);
     scene.add(sky);
+    // Lichtrichtung (bei Nacht steil von oben wie Flutlicht, sonst = Sonne)
+    this.night = !!tod.night;
+    this.lightDir.copy(this.sunDir); if (tod.lightElev) this.lightDir.setFromSphericalCoords(1, (90 - tod.lightElev) * DEG, theta);
+    if (this.night) { sky.visible = false; scene.background = new THREE.Color(0x04060c); }
     // Umgebungs-Map aus dem prozeduralen Himmel (PMREM)
     const envScene = new THREE.Scene();
     const sky2 = new Sky(); sky2.scale.setScalar(1000); sky2.material.uniforms.sunPosition.value.copy(this.sunDir);
@@ -478,7 +489,7 @@ const Render = {
     const s = this.sun, size = 90, res = s.shadow.mapSize.x || 1024, step = size / res;
     const fx = Math.round(focus.x / step) * step, fz = Math.round(focus.z / step) * step;
     s.target.position.set(fx, focus.y, fz);
-    s.position.set(fx + this.sunDir.x * 200, focus.y + this.sunDir.y * 200, fz + this.sunDir.z * 200);
+    s.position.set(fx + this.lightDir.x * 200, focus.y + this.lightDir.y * 200, fz + this.lightDir.z * 200);
     s.target.updateMatrixWorld();
   },
 
@@ -539,6 +550,8 @@ const TIME_OF_DAY = {
   afternoon: { elevation: 34, azimuth: 205, turbidity: 5.5, rayleigh: 1.4, sun: 3.4, sunColor: 0xfff1de, hemi: 0.85, skyColor: 0xbcd4f0, groundColor: 0x5b6b45, fog: 0xb9c9d9 },
   morning: { elevation: 20, azimuth: 115, turbidity: 4.0, rayleigh: 1.2, sun: 3.0, sunColor: 0xffe9cf, hemi: 0.78, skyColor: 0xc6dbf2, groundColor: 0x55663f, fog: 0xc8d4de },
   dusk: { elevation: 3.5, azimuth: 262, turbidity: 9, rayleigh: 3.2, sun: 2.2, sunColor: 0xff9a55, hemi: 0.45, skyColor: 0xb59a8a, groundColor: 0x3c4230, fog: 0xb08f78 },
+  // Nacht unter Flutlicht: dunkler Himmel, „Sonne“ = steiles, neutralweißes Flutlicht (kurze Schatten), bläuliches Umgebungslicht
+  night: { elevation: -7, lightElev: 68, azimuth: 225, turbidity: 2, rayleigh: 0.3, sun: 2.6, sunColor: 0xf3f1ea, hemi: 0.62, skyColor: 0x5a6a90, groundColor: 0x2a2c26, fog: 0x0a0d16, night: true },
   evening: { elevation: 13, azimuth: 248, turbidity: 7.5, rayleigh: 2.4, sun: 3.0, sunColor: 0xffc78a, hemi: 0.68, skyColor: 0xd7c3a8, groundColor: 0x4f5a38, fog: 0xd6bf9f },
 };
 

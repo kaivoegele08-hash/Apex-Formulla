@@ -121,7 +121,8 @@ const Career = {
     if (c.team && c.team !== offer.team) { c.teamRel = 5; }
     const seat = c.drivers.filter(d => d.team === offer.team).sort((a, b) => a.rating - b.rating);
     if (seat.length >= 2) { const out = seat[0]; out.team = null; out.until = 0; this.post(c, 'press', 'Presse', fill(pick(careerRng(c), POSTS.pressSwap), { team: this.teamName(offer.team), out: out.name, in: c.me.name })); }
-    c.team = offer.team; c.contract = { team: offer.team, until: c.seasonNo + offer.years - 1, cond: offer.cond, salary: offer.salary };
+    if (c.team && c.team !== offer.team && c.dev) { c.dev.lv = { aero: 0, chassis: 0, engine: 0 }; c.dev.pts = 0; }
+    c.team = offer.team; c.contract = { team: offer.team, until: c.seasonNo + offer.years - 1, cond: offer.cond, salary: offer.salary, lead: !!offer.lead };
     c.offers = [];
     // Verwaistes Cockpit im alten Team füllen
     this._fillSeats(c, careerRng(c));
@@ -161,7 +162,11 @@ const Career = {
       trackGrip: this.grip(c, d.team), relPlayer: clamp((c.rel[d.name] || 0) / 100, -1, 1) }));
   },
   /** Teamstärke → Haftungsfaktor ±1,5 % (macht Teams spürbar unterschiedlich, ohne die Physik zu verbiegen) */
-  grip(c, team) { const p = c.teams[team] ? c.teams[team].perf : 0.5; return 0.985 + 0.03 * p; },
+  grip(c, team) {
+    const p = c.teams[team] ? c.teams[team].perf : 0.5; let g = 0.985 + 0.03 * p;
+    if (team === c.team) { const D = this.dev(c); for (const k in DEV_PARTS) g += DEV_PARTS[k].grip * (D.lv[k] || 0); if (this.practiced(c)) g += 0.003; }
+    return g;
+  },
   relOf(c, name) { return c.rel[name] || 0; },
   addRel(c, name, d) { if (!name || name === c.me.name) return; c.rel[name] = clamp(Math.round((c.rel[name] || 0) + d), -100, 100); },
   driver(c, name) { return c.drivers.find(d => d.name === name); },
@@ -242,6 +247,9 @@ const Career = {
       const t = pick(rng, this.teamRank(c)), who = rng() < 0.4 ? me.name : pick(rng, c.drivers.filter(d => d.team && d.team !== t)).name;
       this.post(c, 'press', 'Presse', fill(pick(rng, POSTS.pressRumor), { team: this.teamName(t), who }), { aboutMe: who === me.name });
     }
+    // Entwicklungspunkte: Budget des Teams plus Ergebnisbonus
+    const D = this.dev(c), gain = Math.round(2 + c.teams[c.team].budget * 4 + (myRow && myRow.retired ? 0 : pos <= 3 ? 3 : pos <= 10 ? 1 : 0));
+    D.pts += gain; c.lastDevGain = gain;
     if (Season.done(S)) this.seasonEnd(c);
     return { pos, pts: myRow ? myRow.pts : 0, retired: myRow && myRow.retired, tablePos: myTab };
   },
@@ -354,6 +362,8 @@ const Career = {
     if (!ownEnds) offers.unshift({ team: c.team, stay: true, years: c.contract.until - c.seasonNo, cond: c.contract.cond, perf: c.teams[c.team].perf, salary: c.contract.salary, mate: '' });
     if (!offers.length) offers.push(this._offer(c, rank[rank.length - 1] === c.team ? rank[rank.length - 2] : rank[rank.length - 1], rng));
     c.offers = offers;
+    // Eigene Entwicklung fließt in die Teamstärke der nächsten Saison ein, Stufen beginnen neu
+    { const D = this.dev(c), sum = Object.values(D.lv).reduce((a, b) => a + b, 0); c.teams[c.team].perf = clamp(c.teams[c.team].perf + 0.006 * sum, 0.12, 0.98); D.lv = { aero: 0, chassis: 0, engine: 0 }; D.pts = Math.round(D.pts * 0.3); }
     if (!met) this.post(c, 'team', this.teamName(c.team), `Wir danken ${c.me.name} für die Saison – die vereinbarten Ziele wurden leider nicht erreicht.`, { team: c.team, aboutMe: true, tone: -1 });
     c.phase = 'offseason';
   },
@@ -373,3 +383,56 @@ const Career = {
   },
   relLabel(v) { return v >= 60 ? 'Freund' : v >= 25 ? 'gut' : v > -25 ? 'neutral' : v > -60 ? 'angespannt' : 'Rivale'; },
 };
+
+// ---------------------------------------------------------------------------
+//  Karriere-Tiefe: Entwicklung (Upgrades), Freies Training, Teamorder, Vertragsverhandlung
+// ---------------------------------------------------------------------------
+const DEV_PARTS = {
+  aero: { name: 'Aerodynamik', desc: 'Mehr Abtrieb – schneller in schnellen Kurven.', grip: 0.0022 },
+  chassis: { name: 'Fahrwerk', desc: 'Mechanischer Grip und Reifenschonung in langsamen Kurven.', grip: 0.0018 },
+  engine: { name: 'Antrieb', desc: 'Bessere Traktion und Fahrbarkeit beim Herausbeschleunigen.', grip: 0.0014 },
+};
+const DEV_MAX = 5;
+Object.assign(Career, {
+  dev(c) { return c.dev || (c.dev = { pts: 0, lv: { aero: 0, chassis: 0, engine: 0 } }); },
+  devCost(lv) { return 4 + lv * 3; },
+  /** Upgrade kaufen: true bei Erfolg */
+  buyUpgrade(c, part) {
+    const D = this.dev(c), lv = D.lv[part] || 0, cost = this.devCost(lv);
+    if (!DEV_PARTS[part] || lv >= DEV_MAX || D.pts < cost) return false;
+    D.pts -= cost; D.lv[part] = lv + 1;
+    this.post(c, 'team', this.teamName(c.team), `Neues Teil am Auto: ${DEV_PARTS[part].name} Stufe ${lv + 1}. Danke an die Fabrik! 🔧`, { team: c.team });
+    return true;
+  },
+  /** Freies Training: bis zu 3 gezählte Runden je Rennwochenende (je +1 Entwicklungspunkt, ab 3 Runden Setup-Bonus) */
+  practiced(c) { return !!(c.practice && c.season && c.practice.round === c.season.round && c.practice.laps >= 3); },
+  practiceLap(c) {
+    if (!c.season) return 0;
+    if (!c.practice || c.practice.round !== c.season.round) c.practice = { round: c.season.round, laps: 0 };
+    if (c.practice.laps >= 3) return 0;
+    c.practice.laps++; this.dev(c).pts += 1;
+    return c.practice.laps;
+  },
+  /** Teamorder-Ergebnis: Beziehung zu Team und Teamkollege */
+  teamOrder(c, mate, obeyed) {
+    if (obeyed) { c.teamRel = clamp(c.teamRel + 5, -100, 100); this.addRel(c, mate, 6); this.post(c, 'team', this.teamName(c.team), `Starke Teamleistung heute – danke an ${c.me.name} für die Hilfe. 🤝`, { team: c.team, aboutMe: true }); }
+    else { c.teamRel = clamp(c.teamRel - 8, -100, 100); this.addRel(c, mate, -12); this.post(c, 'press', 'Presse', `Ärger im Team ${this.teamName(c.team)}: ${c.me.name} ignoriert die Teamorder zugunsten von ${mate}.`, { aboutMe: true, boost: 2 }); }
+  },
+  /** Nachverhandeln: Gehalt, Laufzeit oder Nummer-1-Status. Einmal je Angebot; Misserfolg kann das Angebot kosten */
+  negotiate(c, offer, what) {
+    if (!offer || offer.stay || offer.negotiated) return { ok: false, msg: 'Nicht verhandelbar.' };
+    const rng = careerRng(c), own = offer.team === c.team;
+    const base = { salary: 0.55, years: 0.6, lead: 0.3 }[what] || 0.4;
+    const chance = clamp(base + (c.me.rep - 40) / 160 + (own ? c.teamRel / 250 : 0) + (0.6 - offer.perf) * 0.35, 0.08, 0.92);
+    offer.negotiated = true;
+    if (rng() < chance) {
+      if (what === 'salary') offer.salary = Math.round(offer.salary * 1.2);
+      else if (what === 'years') offer.years += 1;
+      else offer.lead = true;
+      return { ok: true, msg: { salary: 'Einverstanden: 20 % mehr Gehalt.', years: 'Einverstanden: eine Saison länger.', lead: 'Einverstanden: Du bist Fahrer Nummer 1 – Teamorder gehen zu deinen Gunsten.' }[what] };
+    }
+    if (!own && c.offers.length > 1 && rng() < 0.35) { c.offers = c.offers.filter(o => o !== offer); this.post(c, 'press', 'Presse', `Verhandlungen geplatzt: ${this.teamName(offer.team)} zieht das Angebot an ${c.me.name} zurück.`, { aboutMe: true }); return { ok: false, gone: true, msg: `${this.teamName(offer.team)} hat das Angebot zurückgezogen.` }; }
+    if (own) c.teamRel = clamp(c.teamRel - 3, -100, 100);
+    return { ok: false, msg: 'Abgelehnt – das Angebot bleibt wie es ist.' };
+  },
+});

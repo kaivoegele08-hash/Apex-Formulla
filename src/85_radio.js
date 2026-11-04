@@ -113,3 +113,32 @@ const Radio = {
     });
   },
 };
+
+/** Teamorder in Karriererennen: der Schnellere bzw. die Nummer 1 soll vorbei */
+const TeamOrders = {
+  st: null,
+  reset() { this.st = null; },
+  watch(race, dt, c) {
+    if (!race || !race.player || !c || race.state !== 'race') return;
+    const st = this.st || (this.st = { t: 0, behindT: 0, aheadT: 0, done: false, ask: null });
+    st.t += dt; if (st.t < 0.5) return; const step = st.t; st.t = 0;
+    const me = race.player, mate = race.entries.find(e => !e.player && e.team === c.team && !e.retired);
+    if (!mate || me.finished || me.retired || st.done) return;
+    const rem = race.laps - me.timing.laps.length; if (rem < 1) return;
+    const g = (a, b) => { const x = race.gap(a, b); return x && x.s != null && x.s > 0 ? x.s : null; };
+    const table = Season.driverTable(c.season), myPts = (table.find(d => d.player) || { pts: 0 }).pts, matePts = (table.find(d => d.name === mate.name) || { pts: 0 }).pts;
+    const iAmLead = c.contract && c.contract.lead, mateLead = !iAmLead && matePts > myPts + 10 && c.season.round >= 2;
+    // Offene Anweisung an den Spieler auswerten
+    if (st.ask) {
+      if (mate.pos < me.pos) { Career.teamOrder(c, mate.name, true); Radio.say('Danke dir. Das hilft dem Team.', 2); st.done = true; return; }
+      if (race.time > st.ask) { Career.teamOrder(c, mate.name, false); Radio.say('Das war eine klare Anweisung … darüber reden wir nach dem Rennen.', 2); st.done = true; return; }
+      return;
+    }
+    // Teamkollege direkt vor mir, ich bin Nummer 1 bzw. vorne in der WM → er lässt mich vorbei
+    if (mate.pos === me.pos - 1 && g(mate, me) != null && g(mate, me) < 1.2 && (iAmLead || myPts > matePts + 10)) { st.aheadT += step; if (st.aheadT > 25 && mate.ai) { mate.ai.letByUntil = race.time + 25; Radio.say(`Teamorder: ${mate.name} lässt dich vorbei.`, 2); st.done = true; } }
+    else st.aheadT = 0;
+    // Teamkollege direkt hinter mir und er ist die Nummer 1 bzw. klar vorne in der WM → ich soll Platz machen
+    if (me.pos === mate.pos - 1 && g(me, mate) != null && g(me, mate) < 1.0 && mateLead) { st.behindT += step; if (st.behindT > 20) { st.ask = race.time + 60; Radio.say(`Teamorder: Lass ${mate.name} vorbei. Er kämpft um mehr Punkte.`, 2); } }
+    else st.behindT = 0;
+  },
+};

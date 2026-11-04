@@ -181,7 +181,7 @@ const UI = {
           h('div.card', h('h3', 'Wetter & Tageszeit'),
             chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), S.game.weather || 'dry', v => { S.game.weather = v; Game.saveSettings(); }),
             h('div', { style: { height: '8px' } }),
-            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; Game.saveSettings(); })),
+            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung'], ['night', 'Nacht (Flutlicht)']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Reifenmischung'), chips(COMPOUND_ORDER.slice(0, 5).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Team / Lackierung'), chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), S.game.team, v => { S.game.team = v; Game.saveSettings(); Game.refreshGarageCar(); })),
         ),
@@ -933,7 +933,7 @@ const UI = {
     this._txt('hudGear', veh.gear === 0 ? 'N' : (veh.gear < 0 ? 'R' : String(veh.gear)));
     this._txt('hudSpeed', String(Math.round(veh.speedKmh)));
     this._txt('hudBB', fmtNum(veh.brakeBias * 100, 1));
-    if (Game.weather) { const w = Game.weather; this._txt('hudWx', `${w.rain > 0.05 ? (w.rain > 0.6 ? 'Starkregen' : 'Regen') : w.cloud > 0.6 ? 'Bewölkt' : 'Sonnig'} · Nässe ${Math.round(w.water * 100)} %`); }
+    if (Game.weather) { const w = Game.weather; this._txt('hudWx', `${w.rain > 0.05 ? (w.rain > 0.6 ? 'Starkregen' : 'Regen') : w.cloud > 0.6 ? 'Bewölkt' : (Render.night ? 'Klar' : 'Sonnig')} · Nässe ${Math.round(w.water * 100)} %`); }
     this._txt('hudComp', COMPOUNDS[veh.compound].name);
     this._cls('indTC', 'on', veh.tcActive); this._cls('indABS', 'on', veh.absActive); this._cls('indLim', 'on', veh.pitLimiter);
     // Energie

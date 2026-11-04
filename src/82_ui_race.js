@@ -77,7 +77,7 @@ Object.assign(UI, {
           h('div.card', h('h3', 'Wetter & Tageszeit'),
             chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), S.game.weather || 'dry', v => { S.game.weather = v; save(); }),
             h('div', { style: { height: '8px' } }),
-            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; save(); })),
+            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung'], ['night', 'Nacht']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; save(); })),
           h('div.card', h('h3', 'Startreifen'), h('p', { style: { fontSize: '12px' } }, 'Bei nasser Strecke werden automatisch Intermediate- bzw. Regenreifen aufgezogen.'), chips(COMPOUND_ORDER.slice(0, 3).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; save(); })),
           h('div.card', h('h3', 'Fahrhilfen'),
             fieldRow('Traktionskontrolle', toggle([{ value: 0, label: 'Aus' }, { value: 1, label: 'Mittel' }, { value: 2, label: 'Voll' }], S.aids.tc, v => { S.aids.tc = v; save(); })),

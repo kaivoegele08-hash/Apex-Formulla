@@ -67,7 +67,8 @@ const Game = {
       if (document.hidden && this.state === 'driving' && this.settings.game.autoPause) this.pause('Fenster bzw. Tab wurde verdeckt oder gewechselt (automatische Pause)');
     });
     Radio.init();
-    Events.on('lap:done', (t, valid) => { UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
+    Events.on('lap:done', (t, valid) => {
+      if (this.careerPractice && valid && this.career) { const n = Career.practiceLap(this.career); if (n) { this.saveCareer(); Radio.say(n >= 3 ? 'Drei Runden im Kasten. Das Setup passt – im Rennen bist du etwas schneller.' : `Runde ${n} von 3 – gute Daten, weiter so.`, 1); } } UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
     Events.on('lap:best', (t) => UI.hudMsg(`Neue Bestzeit ${fmtTime(t)}`, 3000));
     Events.on('quali:best', (t, pos) => { if (Net.session && Net.session.role === 'client') Net.session.qualiLap(t); UI.hudMsg(`Qualifying: ${fmtTime(t)} – vorläufig P${pos}`, 3200); AudioSys.radio(); });
     Events.on('quali:last', () => { UI.hudMsg('Zeit abgelaufen – laufende Runde zu Ende fahren', 3200); AudioSys.radio(); });
@@ -219,7 +220,7 @@ const Game = {
   },
   /** Alles entfernen, was zu einer Sitzung gehört */
   _teardown() {
-    CarDebris.clear(); Radio.reset(); if (this.school) { this.school.dispose(); this.school = null; }
+    CarDebris.clear(); Radio.reset(); TeamOrders.reset(); if (this.school) { this.school.dispose(); this.school = null; }
     const sc = Render.scene;
     if (sc) {
       if (this.carVis) sc.remove(this.carVis.root);
@@ -267,11 +268,11 @@ const Game = {
     await this.startTestDrive();
     if (this.mode === 'test') this.school = new DrivingSchool();
   },
-  async startTestDrive() {
+  async startTestDrive(o = {}) {
     this.netHost = null;
     await this._begin('Strecke wird aufgebaut …');
     try {
-      this._useEra(this.settings.game.era);
+      this._useEra(o.era || this.settings.game.era);
       const track = await this._prepareTrack(this.trackId);
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
       await nextFrame();
@@ -526,7 +527,18 @@ const Game = {
     UI.setHudVisible(false); UI.toggleMfd(false);
     this._teardown();
     UI.prev = [];
+    if (this.careerPractice) { this.careerPractice = false; this.saveCareer(); UI.show('career', { noHistory: true }); return; }
     UI.show('main', { noHistory: true });
+  },
+  /** Karriere: Freies Training auf der Strecke des nächsten Rennens (3 Runden → Entwicklungspunkte, Setup-Bonus) */
+  async startCareerPractice() {
+    const c = this.career; if (!c || !c.season) return;
+    this.settings.game.track = c.season.tracks[c.season.round];
+    this.careerRound = false;
+    await this.startTestDrive({ era: c.era });
+    if (this.mode !== 'test') return;
+    this.careerPractice = true;
+    Radio.say(`Freies Training. Fahr bis zu drei saubere Runden – jede bringt uns Daten für das Setup.`, 2);
   },
 
   // ---------------------------------------------------------------------------
@@ -927,7 +939,7 @@ const Game = {
     }
     if (driving) { this._particles(dt); if (wx && wx.water > 0.12) this._spray(v, dt, wx.water); Render.updateParticles(dt); }
     if (this.state !== 'paused') CarDebris.update(dt);
-    if (driving) { if (this.race) Radio.watch(this.race, dt); if (this.school && this.state === 'driving') this.school.update(dt, this.vehicle); Radio.tick(dt); }
+    if (driving) { if (this.race) Radio.watch(this.race, dt); if (this.race && this.careerRound && this.career && this.mode === 'race') TeamOrders.watch(this.race, dt, this.career); if (this.school && this.state === 'driving') this.school.update(dt, this.vehicle); Radio.tick(dt); }
     // Audio
     AudioSys.update(dt, v, { rain: wx ? wx.rain : 0, interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
     // Rumble (Controller): Kerbs/Aufsetzen/Einschlag stark, Schlupf/Blockieren schwach

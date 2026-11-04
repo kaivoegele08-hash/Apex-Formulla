@@ -34,6 +34,8 @@ class TrackVisual {
     this.track = track; this.q = quality;
     this.group = new THREE.Group(); this.group.name = 'track';
     this.mats = this._materials();
+    // Wüste: Gras- und Geländeflächen sandfarben einfärben
+    if (track.def.scenery && track.def.scenery.sand) { const sm = Tex.sand(); this.mats.grass.map = sm; this.mats.terrain.map = sm; this.mats.grass.color.setHex(0xffffff); this.mats.terrain.color.setHex(0xffffff); this.mats.leaves.color.setHex(0x9aa36a); }
     this.wetBase = ['road', 'line', 'kerb1', 'kerb2', 'saus', 'runoff', 'pit', 'paint', 'checker'].map(k => ({ m: this.mats[k], r: this.mats[k].roughness, c: this.mats[k].color.clone() }));
     this.wet = -1;
     this.crowdSpots = [];
@@ -41,6 +43,24 @@ class TrackVisual {
     this._barriers();
     this._terrain();
     this._scenery();
+    if (typeof Render !== 'undefined' && Render.night) this._floodlights();
+  }
+  /** Flutlichtmasten (Nachtrennen): beidseitig versetzt alle ≈ 75 m hinter der Barriere, leuchtende Strahlerköpfe */
+  _floodlights() {
+    const T = this.track, N = T.N, step = Math.max(10, Math.round(75 / T.ds)), list = [];
+    for (let j = 0, k = 0; j < N; j += step, k++) {
+      const side = k % 2, sg = side ? 1 : -1, d = T.BD[side][j] + 7;
+      if (T.pit && side === T.pit.s && T.pit.inPit[j]) continue;
+      list.push({ x: T.X[j] + T.RX[j] * sg * d, z: T.Z[j] + T.RZ[j] * sg * d, y: T.Y[j], face: Math.atan2(-T.RX[j] * sg, -T.RZ[j] * sg) });
+    }
+    const H = 22, pole = new THREE.CylinderGeometry(0.18, 0.32, H, 8); pole.translate(0, H / 2, 0);
+    const head = new THREE.BoxGeometry(3.4, 1.6, 0.4); head.translate(0, H + 0.4, 0);
+    const poles = new THREE.InstancedMesh(pole, this.mats.post, list.length);
+    const heads = new THREE.InstancedMesh(head, new THREE.MeshBasicMaterial({ color: 0xfff4dc, toneMapped: false }), list.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
+    list.forEach((L, i) => { q.setFromAxisAngle(up, L.face); m.compose(p.set(L.x, L.y, L.z), q, one); poles.setMatrixAt(i, m); heads.setMatrixAt(i, m); });
+    poles.castShadow = false; heads.castShadow = false;
+    this.group.add(poles, heads);
   }
 
   _materials() {
