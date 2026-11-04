@@ -183,7 +183,16 @@ const UI = {
         race ? btn('Rennen neu starten', () => this.confirm('Rennen neu starten?', () => Game.startRace()), 'ghost') : null,
         btn(race ? 'Rennen aufgeben' : 'Zum Hauptmenü', () => race ? this.confirm('Rennen aufgeben und zum Hauptmenü?', () => Game.toMenu()) : Game.toMenu(), 'ghost'),
       ),
-      race ? (me ? h('div.card', { style: { marginTop: '22px', maxWidth: '640px' } }, h('h3', 'Fahrzeugzustand'), h('p', 'Schaden: ' + Damage.summary(me.vehicle)), h('p', `Track-Limits-Verwarnungen: ${me.warnings} · Strafen: ${me.penalty ? '+' + me.penalty + ' s' : 'keine'}`)) : null)
+      race ? (me ? h('div.row', { style: { marginTop: '22px', alignItems: 'flex-start' } },
+          h('div.card', { style: { maxWidth: '420px' } }, h('h3', 'Fahrzeugzustand'), h('p', 'Schaden: ' + Damage.summary(me.vehicle)),
+            h('p', `Reifen: ${COMPOUNDS[me.vehicle.compound].name} · Verschleiß ${Math.round(Math.max(...me.vehicle.wheels.map(w => w.tyre.wear)) * 100)} %`),
+            h('p', `Track-Limits-Verwarnungen: ${me.warnings} · Strafen: ${me.penalty ? `${me.penalty} s (offen ${me.penalty - me.penaltyServed} s)` : 'keine'}`),
+            Game.race.mandatory ? h('p', `Pflichtstopp: ${me.used.size >= 2 ? 'erfüllt' : 'noch offen'} (gefahren: ${[...me.used].map(c => COMPOUNDS[c].name).join(', ')})`) : null),
+          h('div.card', { style: { maxWidth: '460px' } }, h('h3', 'Boxenstopp-Plan'),
+            chips(['soft', 'medium', 'hard'].map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.pitPlan.compound, v => { Game.pitPlan.compound = v; if (me.pitPlan) me.pitPlan.compound = v; }),
+            fieldRow('Schaden reparieren', toggle([{ value: true, label: 'Ja (+6,5 s)' }, { value: false, label: 'Nein' }], Game.pitPlan.repair, v => { Game.pitPlan.repair = v; if (me.pitPlan) me.pitPlan.repair = v; })),
+            h('div.actions', btn(me.pitPlan ? 'Box abbrechen' : 'Box anfordern', () => { Game.race.togglePit(me, Game.pitPlan); this.show('pause', { noHistory: true }); }, me.pitPlan ? 'small ghost' : 'small primary')),
+            h('p', { style: { fontSize: '12px' } }, 'Im Rennen Taste B. Ab der Boxeneinfahrt übernimmt der Autopilot (80 km/h, Stopp an deiner Teambox); offene Zeitstrafen werden dabei abgesessen.'))) : null)
         : h('div.card', { style: { marginTop: '22px', maxWidth: '640px' } }, h('h3', 'Neue Reifen aufziehen'),
           chips(COMPOUND_ORDER.map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.vehicle ? Game.vehicle.compound : S.game.compound, v => { S.game.compound = v; Game.saveSettings(); Game.fitTyres(v); this.toast(`Neue Reifen: ${COMPOUNDS[v].name}`); })),
     );
@@ -213,6 +222,9 @@ const UI = {
             h('p', '• ', h('b', 'Schaden:'), ' Treffer beschädigen Front-/Heckflügel (weniger Abtrieb), Unterboden und Aufhängung (Auto zieht zur Seite). Zustand im MFD.'),
             h('p', '• ', h('b', 'Sektoren:'), ' lila = Allzeit-Bestwert, grün = persönliche Bestzeit der Sitzung, gelb = langsamer.'),
             h('p', '• ', h('b', 'Kameras:'), ' Cockpit, T-Cam, Nase, Verfolger nah/fern, TV-Kamera (Taste für Kamerawechsel).'),
+            h('p', '• ', h('b', 'Boxenstopp:'), ' Taste B (Box anfordern), Plan im Pausemenü. Ab der Einfahrt fährt der Autopilot mit 80 km/h zur Teambox (Reifen, Reparatur, offene Strafen), danach übernimmst du wieder. Pflichtstopp: zwei verschiedene Trockenmischungen.'),
+            h('p', '• ', h('b', 'Flaggen:'), ' Gelb = Unfall voraus, nicht überholen. Blau = Überrundung, Platz machen. Safety Car: einreihen, nicht überholen; Neustart an der Linie. VSC: Tempolimit wird angezeigt. Überholen unter Gelb/SC/VSC oder zu schnell unter VSC: 5 s Strafe.'),
+            h('p', '• ', h('b', 'Energie:'), ' Höchstens 4 MJ Einsatz je Runde (Überholmodus +0,5 MJ) – Restbudget in der Energieanzeige.'),
             h('p', '• ', h('b', 'Ideallinie (Fahrhilfe):'), ' grün = beschleunigen, gelb = Gas weg, rot = bremsen. Die Farben richten sich nach deinem aktuellen Tempo. Einstellbar unter Fahrhilfen (Aus / Nur Bremszonen / Voll).'),
             h('p', '• ', h('b', 'KI-Gegner:'), ' verteidigen die Innenseite vor Bremszonen (ein Spurwechsel), machen auf der Geraden einmal die Tür zu, nutzen den Windschatten und bremsen innen später. Neben dir halten sie seitlich Abstand. Stärke über 100 % = mehr Grip als physikalisch möglich.'),
           ),
@@ -861,7 +873,8 @@ const UI = {
     this._txt('hudSoc', Math.round(soc * 100) + ' %');
     $('hudSocBar').firstChild.style.width = (soc * 100).toFixed(1) + '%';
     this._cls('hudSocBar', 'harv', veh.harvesting); this._cls('hudSocBar', 'boost', veh.overtakeActive);
-    this._txt('hudErsMode', ERS_NAMES[veh.ersMode]);
+    const left = Math.max(0, veh.spec.ers.lapDeployMJ - veh.lapDeploy / 1e6);
+    this._txt('hudErsMode', `${ERS_NAMES[veh.ersMode]} · ${fmtNum(left, 1)} MJ`);
     this._cls('indOT', 'pink', veh.overtakeActive); this._cls('indOT', 'on', !veh.overtakeActive && veh.overtakeAvailable);
     const aeroTxt = veh.aeroFlap > 0.5 ? 'GERADE' : 'KURVE';
     this._txt('indAero', aeroTxt); this._cls('indAero', 'green', veh.aeroFlap > 0.5); this._cls('indAero', 'blue', veh.aeroFlap <= 0.5 && veh.inAeroZone);
@@ -914,6 +927,7 @@ const UI = {
     const wear = W.map(w => Math.round((1 - w.tyre.wear) * 100)).join('/') + ' %';
     const html = `<h4>MFD · Fahrzeug</h4>
       <div class="ln"><span>Energiemodus</span><b>${ERS_NAMES[veh.ersMode]}</b></div>
+      <div class="ln"><span>Einsatz diese Runde</span><b>${fmtNum(veh.lapDeploy / 1e6, 1)} / ${fmtNum(veh.spec.ers.lapDeployMJ, 1)} MJ</b></div>${Game.mode === 'race' && Game.pitPlan ? `<div class="ln"><span>Boxenplan</span><b>${COMPOUNDS[Game.pitPlan.compound].name}${Game.pitPlan.repair ? ' + Rep.' : ''} (B)</b></div>` : ''}
       <div class="ln"><span>Batterie</span><b>${Math.round(veh.socFrac * 100)} %</b></div>
       <div class="ln"><span>Bremsbalance</span><b>${fmtNum(veh.brakeBias * 100, 1)} %</b></div>
       <div class="ln"><span>Reifen</span><b>${COMPOUNDS[veh.compound].name}</b></div>

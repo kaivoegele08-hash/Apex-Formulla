@@ -12,7 +12,7 @@ const BUTTON_ACTIONS = [
   ['pitLimiter', 'Boxenfunk / Begrenzer'], ['bbUp', 'Bremsbalance +'], ['bbDown', 'Bremsbalance −'], ['ersUp', 'Energiemodus +'],
   ['ersDown', 'Energiemodus −'], ['mfd', 'MFD-Menü'], ['camera', 'Kamera wechseln'], ['lookBack', 'Blick zurück'],
   ['lookLeft', 'Blick links'], ['lookRight', 'Blick rechts'], ['pause', 'Pause'], ['reset', 'Auto zurücksetzen'],
-  ['inputOverlay', 'Eingabe-Overlay'], ['hud', 'HUD ein/aus'],
+  ['inputOverlay', 'Eingabe-Overlay'], ['hud', 'HUD ein/aus'], ['pitRequest', 'Box anfordern'],
 ];
 const ACTION_LABEL = Object.fromEntries(BUTTON_ACTIONS);
 const AXIS_ACTIONS = [['steer', 'Lenkung'], ['throttle', 'Gas'], ['brake', 'Bremse'], ['clutch', 'Kupplung']];
@@ -22,7 +22,7 @@ const DEFAULT_KEYS = {
   shiftUp: ['ShiftLeft', 'ShiftRight'], shiftDown: ['ControlLeft', 'ControlRight'], overtake: ['Space'], aero: ['KeyF'],
   pitLimiter: ['KeyP'], bbUp: ['BracketRight'], bbDown: ['BracketLeft'], ersUp: ['Period'], ersDown: ['Comma'], mfd: ['KeyM'],
   camera: ['KeyC'], lookBack: ['KeyV'], lookLeft: ['KeyQ'], lookRight: ['KeyE'], pause: ['Escape'], reset: ['KeyR'],
-  inputOverlay: ['KeyI'], hud: ['KeyH'],
+  inputOverlay: ['KeyI'], hud: ['KeyH'], pitRequest: ['KeyB'],
 };
 /** Standard-Gamepad (W3C-„standard“-Mapping) */
 const DEFAULT_PAD = {

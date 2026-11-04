@@ -152,6 +152,14 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
 #hudLights i { width: 38px; height: 38px; border-radius: 50%; background: #2a0a0a; box-shadow: inset 0 0 8px #000; }
 #hudLights i.on { background: radial-gradient(circle at 40% 35%, #ff8a7a, #ff1a0a 55%, #8a0000); box-shadow: 0 0 18px #ff2a1a; }
 #hudGaps { top: 250px; right: 14px; width: 220px; font-style: normal; }
+#hudFlag { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); padding: 8px 22px; font-size: 20px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 4px solid rgba(0,0,0,0.4); box-shadow: 0 4px 18px rgba(0,0,0,0.4); }
+#hudFlag.yellow { background: #ffd400; color: #111; } #hudFlag.sc, #hudFlag.vsc { background: #ffb000; color: #111; animation: fl 0.8s steps(2) infinite; }
+#hudFlag.vscEnd { background: #ffb000; color: #111; } #hudFlag.blue { background: #1f6bff; color: #fff; } #hudFlag.green { background: #16c45a; color: #fff; }
+#hudFlag.chequered { background: repeating-conic-gradient(#fff 0 25%, #111 0 50%) 0 0 / 20px 20px; color: #ff3b1f; text-shadow: 0 0 4px #000, 0 0 2px #000; }
+#hudFlag small { display: block; font-size: 12px; letter-spacing: 0.04em; text-align: center; }
+#hudBox { position: absolute; top: 300px; right: 14px; width: 220px; background: rgba(10,12,16,0.82); border-left: 3px solid #b65cff; padding: 6px 12px; font-size: 13px; font-weight: 800; font-style: normal; }
+#hudTower .tr .cp { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-left: 5px; vertical-align: 0; border: 1px solid rgba(0,0,0,0.6); }
+#hudTower .tr .bx { color: #b65cff; font-weight: 900; }
 #hudGaps .ln { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; padding: 2px 0; font-variant-numeric: tabular-nums; }
 .res td, .res th { padding: 6px 10px; border-bottom: 1px solid rgba(42,51,66,0.6); font-size: 14px; text-align: left; font-variant-numeric: tabular-nums; }
 .res th { color: var(--tx2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
@@ -239,6 +247,8 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
   <canvas id="hudMap" width="220" height="220"></canvas>
   <div id="hudTower" class="hud-panel hidden"></div>
   <div id="hudLights" class="hidden"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="hudFlag" class="hidden"></div>
+  <div id="hudBox" class="hidden"></div>
   <div id="hudGaps" class="hud-panel hidden"><div class="ln"><span>Vordermann</span><b id="gapAhead">–</b></div><div class="ln"><span>Hintermann</span><b id="gapBehind">–</b></div></div>
   <div id="fpsBox" class="hidden"><span id="fpsTxt"></span><canvas id="fpsGraph" width="160" height="40" class="hidden"></canvas></div>
   <div id="hudCenter">

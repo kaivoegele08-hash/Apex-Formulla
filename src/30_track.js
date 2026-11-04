@@ -5,8 +5,10 @@
 //  für die Physik, Sektoren, Aero-Zonen, Referenz-Geschwindigkeitsprofil.
 // ============================================================================
 
-const BARRIER = { WALL: 0, GUARDRAIL: 1, TYRES: 2 };
-const BARRIER_BY_KEY = { wall: 0, guardrail: 1, tyres: 2 };
+const BARRIER = { WALL: 0, GUARDRAIL: 1, TYRES: 2, NONE: 3 };
+const BARRIER_BY_KEY = { wall: 0, guardrail: 1, tyres: 2, none: 3 };
+const PIT_LANE_W = 13;      // Breite der Boxengasse hinter der Boxenmauer (m)
+const PIT_SPEED = 80 / 3.6; // Tempolimit in der Boxengasse
 const KERB_W = [0, 1.30, 1.05];          // Breite je Randsteintyp (flach, Sägezahn)
 const SAUSAGE_W = 0.50;
 const KERB_H = [0, 0.022, 0.016];        // Überhöhung der Randsteine
@@ -30,6 +32,7 @@ class TrackModel {
     this._buildCurvature();
     this._buildSides();
     this._buildZones();
+    this._buildPit();
     this._buildSpeedProfile();
     this._buildGrid();
     this._buildMarkers();
@@ -226,6 +229,32 @@ class TrackModel {
   }
 
   // ---------------------------------------------------------------------------
+  //  Boxengasse: hinter der Boxenmauer, Ein-/Ausfahrt als Öffnung in der Mauer
+  // ---------------------------------------------------------------------------
+  _buildPit() {
+    this.pit = null;
+    const p = this.def.scenery && this.def.scenery.pit; if (!p) return;
+    const N = this.N, s = p.side === 'R' ? 1 : 0, sg = s ? 1 : -1;
+    const ja = this.idxOf(p.from), jb = this.idxOf(p.to), n = (jb - ja + N) % N;
+    const open = Math.round(75 / this.ds);
+    const inPit = new Uint8Array(N), H = new Float32Array(N), o = new GroundHit();
+    for (let k = 0; k <= n; k++) {
+      const j = (ja + k) % N;
+      inPit[j] = (k < open || k > n - open) ? 2 : 1;                 // 2 = Öffnung (Ein-/Ausfahrt)
+      if (inPit[j] === 2) this.barT[s][j] = BARRIER.NONE;
+      this._profile(j, j, 0, sg * (this.BD[s][j] - 0.02), this.S[j], o, 0);
+      H[j] = o.h;                                                       // Höhe der Gasse (relativ zur Mittellinie)
+    }
+    // Boxenplätze: 10 Teams gleichmäßig zwischen Ein- und Ausfahrt
+    const k0 = open + Math.round(25 / this.ds), k1 = n - open - Math.round(25 / this.ds);
+    const boxes = Array.from({ length: 10 }, (_, i) => this.S[(ja + Math.round(k0 + (k1 - k0) * i / 9)) % N]);
+    this.pit = { s, sg, ja, jb, n, open, inPit, H, sIn: this.S[ja], sOut: this.S[jb], boxes,
+      len: n * this.ds, wallIn: this.S[(ja + open) % N], wallOut: this.S[(ja + n - open) % N] };
+  }
+  /** Meter vom Gassenanfang (oder −1, wenn außerhalb) */
+  pitRel(s) { const P = this.pit; if (!P) return -1; let d = s - P.sIn; if (d < 0) d += this.length; return d <= P.len ? d : -1; }
+
+  // ---------------------------------------------------------------------------
   //  Zonen: Sektoren, Aero-Geraden, Überholmodus-Erkennungspunkte
   // ---------------------------------------------------------------------------
   _buildZones() {
@@ -369,6 +398,11 @@ class TrackModel {
     } else if (a <= ae) {
       surf = SURF.ASTRO;
       h += nz * SURFACES[SURF.ASTRO].vibAmp * noise1(s / 1.6 + a);
+    } else if (this.pit && side === this.pit.s && this.pit.inPit[jn] && a > bd - 0.02 && a <= bd + PIT_LANE_W) {
+      surf = SURF.PIT; h = this.pit.H[jn]; dhda = 0;
+      h += nz * SURFACES[SURF.PIT].vibAmp * noise1(s / 3 + a * 0.2);
+      out.h = h; out.dhdd = 0; out.surf = surf; out.edge = a - hw; out.barrier = bd + PIT_LANE_W;
+      return;
     } else if (a <= bd) {
       surf = this.runT[side][jn];
       const sd = SURFACES[surf];

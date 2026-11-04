@@ -74,6 +74,7 @@ const CAR_SPEC = {
     taperBoost: [337, 355],   // im Überholmodus
     liftKW: { save: 200, balanced: 120, attack: 60 },
     deploy: { save: 0.55, balanced: 0.85, attack: 1.0 },
+    lapDeployMJ: 4.0,         // Einsatzgrenze je Runde (Überholmodus: +0,5 MJ)
   },
   gearbox: {
     ratios: [5.0, 3.8, 3.05, 2.525, 2.1625, 1.8875, 1.6625, 1.475],  // 8 Gänge
@@ -221,7 +222,7 @@ const TRACKS = {
     scenery: {
       seed: 1871,
       trees: 2600,
-      pit: { from: 0.952, to: 0.088, side: 'L' },
+      pit: { from: 0.962, to: 0.062, side: 'L' },
       grandstands: [
         { at: 0.985, len: 240, side: 'R', rows: 14 }, { at: 0.128, len: 130, side: 'L', rows: 10 },
         { at: 0.385, len: 90, side: 'L', rows: 8 }, { at: 0.612, len: 120, side: 'L', rows: 12 },
@@ -298,7 +299,7 @@ const TRACKS = {
     scenery: {
       seed: 4711,
       trees: 2400,
-      pit: { from: 0.905, to: 0.07, side: 'L' },
+      pit: { from: 0.932, to: 0.045, side: 'L' },
       grandstands: [
         { at: 0.975, len: 260, side: 'R', rows: 14 }, { at: 0.115, len: 120, side: 'R', rows: 10 },
         { at: 0.268, len: 90, side: 'R', rows: 8 }, { at: 0.655, len: 120, side: 'R', rows: 10 },

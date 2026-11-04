@@ -64,6 +64,9 @@ Object.assign(UI, {
         h('div.col', { style: { flex: '0 1 420px' } },
           h('div.card', h('h3', 'Regeln'),
             fieldRow('Schaden', toggle([{ value: 'off', label: 'Aus' }, { value: 'reduced', label: 'Reduziert' }, { value: 'full', label: 'Realistisch' }], R.damage, v => { R.damage = v; save(); })),
+            fieldRow('Safety Car / VSC', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], R.safetyCar !== false, v => { R.safetyCar = v; save(); })),
+            fieldRow('Pflichtstopp', toggle([{ value: 'auto', label: 'Ab 10 Runden' }, { value: 'on', label: 'Immer' }, { value: 'off', label: 'Aus' }], R.mandatory || 'auto', v => { R.mandatory = v; save(); })),
+            h('p', { style: { fontSize: '12px' } }, 'Pflichtstopp: zwei verschiedene Trockenmischungen im Rennen, sonst 30 s Strafe. Box anfordern mit Taste B (am Lenkrad belegbar) – der Autopilot fährt durch die Gasse.'),
             h('p', { style: { fontSize: '12px' } }, 'Track Limits: alle vier Räder jenseits der weißen Linie = Verwarnung; ab der 4. Verwarnung 5 s Zeitstrafe. Start: das Auto wird gehalten, bis die Ampel erlischt.'),
           ),
           h('div.card', h('h3', 'Startreifen'), chips(COMPOUND_ORDER.slice(0, 3).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; save(); })),
@@ -204,14 +207,14 @@ Object.assign(UI, {
     const cls = race.classification();
     const me = race.player;
     const myRow = cls.find(r => r.e === me);
-    const tbl = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Fahrer'), h('th', 'Team'), h('th', 'Rd'), h('th', 'Zeit / Abstand'), h('th', 'Beste Runde'), h('th', 'Strafen')));
+    const tbl = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Fahrer'), h('th', 'Team'), h('th', 'Rd'), h('th', 'Zeit / Abstand'), h('th', 'Beste Runde'), h('th', 'Stopps'), h('th', 'Strafen')));
     for (const r of cls) {
       const team = TEAMS.find(t => t.id === r.team);
       const time = r.retired ? 'Ausgeschieden' : !r.finished ? (r.gap ? fmtGap(r.gap) : 'im Rennen') : r.pos === 1 ? fmtTime(r.total) : fmtGap(r.gapTotal);
       const fl = race.fastest.entry === r.e;
       tbl.append(h('tr' + (r.e === me ? '.me' : ''),
         h('td.num', String(r.pos)), h('td', h('i.sw', { style: { background: team.colors[0] } }), `${r.number} · ${r.name}`), h('td', team.name), h('td.num', String(r.laps)),
-        h('td.num', time), h('td.num', { style: fl ? { color: '#b65cff', fontWeight: 800 } : {} }, fmtTime(r.best)), h('td.num', r.penalty ? `+${r.penalty} s` : '')));
+        h('td.num', time), h('td.num', { style: fl ? { color: '#b65cff', fontWeight: 800 } : {} }, fmtTime(r.best)), h('td.num', `${r.e.pitStops} · ${[...r.e.used].map(c => COMPOUNDS[c].short).join('-')}`), h('td.num', r.penalty - r.e.penaltyServed > 0 ? `+${r.penalty - r.e.penaltyServed} s` : (r.penalty ? `${r.penalty} s (abgesessen)` : ''))));
     }
     const title = myRow ? (myRow.retired ? 'Ausgeschieden' : `Platz ${myRow.pos}`) : 'Ergebnis';
     return h('section.screen.solid',
@@ -225,7 +228,21 @@ Object.assign(UI, {
   // ---------------------------------------------------------------------------
   //  Renn-HUD
   // ---------------------------------------------------------------------------
+  /** Flaggen-Banner: green kurz anzeigen, dann ausblenden */
+  setFlag(f, vscMax) {
+    const el = $('hudFlag');
+    const names = { yellow: 'Gelbe Flagge', sc: 'Safety Car', vsc: 'Virtuelles Safety Car', vscEnd: 'VSC endet', blue: 'Blaue Flagge', green: 'Grüne Flagge', chequered: 'Zielflagge' };
+    const sub = { yellow: 'Nicht überholen – langsamer', sc: 'Nicht überholen – hinter dem Vordermann einreihen', blue: 'Schnelleres Auto überrunden lassen', vsc: vscMax ? `Höchstens ${Math.round(vscMax * 3.6)} km/h · nicht überholen` : 'Nicht überholen' };
+    const key = f + '|' + (f === 'vsc' && vscMax ? Math.round(vscMax * 3.6 / 5) : '');
+    if (this.hudCache.flag === key) return;
+    const was = this.hudCache.flag; this.hudCache.flag = key;
+    if (!f || (f === 'green' && (!was || was.startsWith('green')))) { el.classList.add('hidden'); return; }
+    el.className = f; el.innerHTML = `${names[f] || f}${sub[f] ? `<small>${sub[f]}</small>` : ''}`;
+    clearTimeout(this._flagTimer);
+    if (f === 'green') this._flagTimer = setTimeout(() => el.classList.add('hidden'), 2500);
+  },
   setRaceHud(on, total = 20) {
+    $('hudFlag').classList.add('hidden'); $('hudBox').classList.add('hidden');
     $('hudTower').classList.toggle('hidden', !on);
     $('hudGaps').classList.toggle('hidden', !on);
     $('hudPos').classList.toggle('hidden', !on);
@@ -281,8 +298,17 @@ Object.assign(UI, {
       if (e.finished && i > 0) gap = 'Ziel';
       if (e.penalty && !e.retired) gap += ` <span style="color:#ffb02e">+${e.penalty}</span>`;
       const fl = race.fastest.entry === e ? ' <span class="fl">●</span>' : '';
-      html += `<div class="tr${e.player ? ' me' : ''}${e.retired ? ' out' : ''}"><b>${i + 1}</b><i style="background:${team.colors[0]}"></i><span>${e.player ? 'DU' : shortName(e.name)}${fl}</span><em>${gap}</em></div>`;
+      if (e.pitting && !e.retired) gap = '<span class="bx">BOX</span>';
+      const cp = `<span class="cp" style="background:${COMPOUNDS[e.vehicle.compound].color}"></span>`;
+      html += `<div class="tr${e.player ? ' me' : ''}${e.retired ? ' out' : ''}"><b>${i + 1}</b><i style="background:${team.colors[0]}"></i><span>${e.player ? 'DU' : shortName(e.name)}${cp}${fl}</span><em>${gap}</em></div>`;
     });
     if (this.hudCache.tower !== html) { this.hudCache.tower = html; $('hudTower').innerHTML = html; }
+    // Flaggen-Banner (VSC: erlaubtes Tempo) und Box-Status
+    this.setFlag(race.playerFlag, race.vscMax);
+    const plan = me.pitPlan, box = me.pitting ? 'BOXENGASSE · Autopilot' : plan ? `BOX angefordert · ${COMPOUNDS[plan.compound].name}${plan.repair ? ' · Reparatur' : ''}` : '';
+    const mand = race.mandatory ? (me.used.size >= 2 ? 'Pflichtstopp erfüllt' : 'Pflichtstopp offen') : '';
+    const bt = [box, mand].filter(Boolean).join('<br>');
+    $('hudBox').classList.toggle('hidden', !bt);
+    if (this.hudCache.box !== bt) { this.hudCache.box = bt; $('hudBox').innerHTML = bt; }
   },
 });

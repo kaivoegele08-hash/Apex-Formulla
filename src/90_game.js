@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
     kbSteerRate: 2.6, kbSteerReturn: 4.5, kbSpeedSteer: 0.22, rumble: 0.8,
   },
   game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark' },
-  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full' },
+  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full', safetyCar: true, mandatory: 'auto' },
   ffb: { enabled: false, strength: 0.7, invert: false, damper: 0.15, road: 0.5, vibration: 0.6 },
 };
 
@@ -138,7 +138,9 @@ const Game = {
       for (const r of this.raceVis) sc.remove(r.vis.root);
       if (this.ghost) sc.remove(this.ghost.root);
       if (this.idealLine) { sc.remove(this.idealLine.mesh); this.idealLine.mesh.geometry.dispose(); }
+      if (this.scVis) sc.remove(this.scVis.root);
     }
+    this.scVis = null;
     this.idealLine = null;
     this.vehicle = null; this.carVis = null; this.session = null; this.race = null; this.raceVis = []; this.ghost = null; this.raceRec = null;
     this.resultsShown = false; this.playerDoneT = null;
@@ -196,9 +198,12 @@ const Game = {
       await nextFrame();
       const line = this.getLine(track.id), R = this.settings.race, G = this.settings.game;
       const field = buildField({ playerTeam: G.team, playerName: G.playerName || 'Du', playerNumber: G.number, size: R.opponents + 1, gridMode: R.grid, playerGrid: R.playerGrid });
-      for (const e of field) { e.compound = e.player ? G.compound : 'medium'; if (e.player) e.setup = this.setupFor(track.id); }
+      const mix = ['medium', 'medium', 'soft', 'hard'];
+      for (const e of field) { e.compound = e.player ? G.compound : (R.laps < 10 ? 'soft' : mix[Math.floor(Math.random() * mix.length)]); if (e.player) e.setup = this.setupFor(track.id); }
+      const mandatory = R.mandatory === 'auto' ? R.laps >= 10 : R.mandatory === 'on';
       this.mode = 'race';
-      const race = this.race = new RaceSession({ track, line, laps: R.laps, entries: field, damage: R.damage, aiStrength: R.strength });
+      const race = this.race = new RaceSession({ track, line, laps: R.laps, entries: field, damage: R.damage, aiStrength: R.strength, mandatory, safetyCar: R.safetyCar !== false });
+      this.pitPlan = { compound: G.compound === 'medium' ? 'hard' : 'medium', repair: true };
       const me = race.player;
       this.vehicle = me.vehicle;
       this.applyAids();
@@ -233,11 +238,17 @@ const Game = {
   _raceEvents() {
     Events.on('race:lights', (n) => { UI.setLights(n); if (n > 0) AudioSys.beep(n === 5 ? 880 : 660, 0.12, 0.2, 'effects'); });
     Events.on('race:start', () => { UI.hudMsg('Los!', 1400); AudioSys.beep(1320, 0.25, 0.25, 'effects'); if (this.raceRec) this.raceRec.begin(1); });
-    Events.on('race:msg', (text, entry, kind) => { if (kind === 'win' || kind === 'out' || kind === 'fastest' || (entry && entry.player)) UI.hudMsg(text, 3200); });
+    Events.on('race:msg', (text, entry, kind) => { if (kind === 'win' || kind === 'out' || kind === 'fastest' || kind === 'sc' || kind === 'green' || (entry && entry.player && kind !== 'pit')) UI.hudMsg(text, 3200); });
     Events.on('race:limits', (n, text) => { UI.hudMsg(n ? `Track Limits – ${text}` : text, 2600); AudioSys.radio(); });
     Events.on('race:damage', (parts) => UI.hudMsg('Schaden: ' + parts.join(', '), 2600));
     Events.on('race:sector', (d) => { this.raceSectors[d.k] = !this.race.player.timing.valid ? 'invalid' : d.overall ? 'purple' : d.pb ? 'green' : 'yellow'; });
     Events.on('race:contact', (sp) => { if (sp > 6) UI.hudMsg('Kontakt!', 900); });
+    Events.on('race:flag', (f) => { UI.setFlag(f); if (f !== 'green' && f !== 'chequered') AudioSys.radio(); });
+    Events.on('race:sc', (kind, phase) => { if (phase === 'deploy') AudioSys.beep(700, 0.3, 0.25, 'effects'); });
+    Events.on('race:pitentry', () => UI.hudMsg('Boxengasse – Autopilot übernimmt', 2200));
+    Events.on('race:pitmissed', () => UI.hudMsg('Boxeneinfahrt verpasst – nächste Runde', 2400));
+    Events.on('race:service', (e, t, info) => { if (e.player) UI.hudMsg(`Boxenstopp ${t.toFixed(1).replace('.', ',')} s · ${COMPOUNDS[info.plan.compound].name}${info.repair ? ' · repariert' : ''}`, 3000); });
+    Events.on('race:pitdone', (e) => { if (e.player) UI.hudMsg('Zurück auf der Strecke – du fährst', 2200); });
     Events.on('race:finished', (e) => { if (e.player) this._playerDone(`Zielflagge – Platz ${e.pos}`); });
     Events.on('race:retired', (e) => { if (e.player) this._playerDone('Ausgeschieden'); });
     Events.on('race:over', () => { if (this.state === 'finished' && UI.current === 'results') UI.show('results', { noHistory: true }); });
@@ -322,7 +333,7 @@ const Game = {
   pre(dt) {
     const v = this.vehicle;
     Input.update(dt, v ? v.speedKmh : 0);
-    const autoDrive = this.mode === 'race' && this.race && this.race.player && this.race.player.ai;
+    const autoDrive = this.mode === 'race' && this.race && this.race.player && (this.race.player.ai || this.race.player.pitPilot);
     if (this.state === 'driving' && v) {
       if (!autoDrive) { const st = Input.state, inp = v.input; inp.steer = st.steer; inp.throttle = st.throttle; inp.brake = st.brake; inp.clutch = st.clutch; inp.steerSource = st.steerSource; }
       this._actions();
@@ -335,6 +346,13 @@ const Game = {
     const v = this.vehicle, I = Input;
     // Entprellung: ein Knopf, der gerade „Fortsetzen“ ausgelöst hat, darf nicht sofort wieder pausieren
     if (I.pressed('pause') && performance.now() - (this.resumeT || 0) > 400) { this.pause(I.sourceOf('pause') || 'Pause-Taste'); return; }
+    if (I.pressed('pitRequest')) {
+      if (this.mode === 'race' && this.race && this.race.track.pit) {
+        const r = this.race.togglePit(this.race.player, this.pitPlan);
+        UI.hudMsg(r === 'angefordert' ? `Box angefordert – ${COMPOUNDS[this.pitPlan.compound].name}${this.pitPlan.repair ? ' · Reparatur' : ''}` : r === 'abgebrochen' ? 'Box abgebrochen' : 'Boxenstopp läuft', 2200);
+        AudioSys.radio();
+      } else UI.hudMsg('Boxenstopp nur im Rennen – in der Testfahrt: Pause → Neue Reifen', 2200);
+    }
     if (I.pressed('shiftUp')) v.requestShift(1);
     if (I.pressed('shiftDown')) v.requestShift(-1);
     if (I.pressed('overtake')) {
@@ -377,8 +395,9 @@ const Game = {
   mapCars() {
     const col = this.team.colors[0];
     if (this.mode === 'race' && this.race) {
-      return this.race.entries.filter(e => e.active || e.player).map(e => ({ x: e.vehicle.pos.x, z: e.vehicle.pos.z, color: TEAMS.find(t => t.id === e.team).colors[0], player: e.player }))
-        .sort((a, b) => a.player - b.player);
+      const list = this.race.entries.filter(e => e.active || e.player).map(e => ({ x: e.vehicle.pos.x, z: e.vehicle.pos.z, color: TEAMS.find(t => t.id === e.team).colors[0], player: e.player }));
+      const scc = this.race.sc && this.race.sc.car; if (scc) list.push({ x: scc.vehicle.pos.x, z: scc.vehicle.pos.z, color: '#ff8a00' });
+      return list.sort((a, b) => a.player - b.player);
     }
     const out = [];
     if (this.ghost && this.ghost.root.visible) out.push({ x: this.ghost.root.position.x, z: this.ghost.root.position.z, color: 'rgba(160,200,255,0.8)' });
@@ -392,7 +411,7 @@ const Game = {
       if (this.garage) { this.garage.update(dt, Render.width / Render.height); Render.render(this.garage.scene, this.garage.camera); }
     } else if ((this.state === 'driving' || this.state === 'paused' || this.state === 'finished') && this.vehicle) {
       this._updateVisuals(dt, alpha);
-      FFB.update(dt, this.vehicle, this.state === 'driving' && !(this.race && this.race.player.ai));
+      FFB.update(dt, this.vehicle, this.state === 'driving' && !(this.race && (this.race.player.ai || this.race.player.pitPilot)));
       Render.render();
       this._autoQuality(dt);
     }
@@ -424,7 +443,7 @@ const Game = {
     }
     Render.updateSun(this.carVis.root.position);
     this._otherCars(dt, alpha, now);
-    if (this.idealLine) this.idealLine.update(v, this.state === 'finished' || (this.race && this.race.player.ai) ? 'off' : (S.aids.idealLine || 'off'));
+    if (this.idealLine) this.idealLine.update(v, this.state === 'finished' || (this.race && (this.race.player.ai || this.race.player.pitPilot)) ? 'off' : (S.aids.idealLine || 'off'));
     if (driving) { this._particles(dt); Render.updateParticles(dt); }
     // Audio
     AudioSys.update(dt, v, { interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
@@ -454,6 +473,12 @@ const Game = {
       this.ghost.update(show ? S.ghost.data : null, S ? S.lapTime : 0, cp);
     }
     if (this.mode !== 'race' || !this.race) return;
+    const scCar = this.race.sc && this.race.sc.car;
+    if (scCar && !this.scVis) { this.scVis = new CarVisual(SC_TEAM, 0, { detail: 'low', physical: false }); Render.scene.add(this.scVis.root); }
+    if (this.scVis) {
+      this.scVis.root.visible = !!scCar;
+      if (scCar) this.scVis.update(scCar.vehicle, alpha, scCar.vehicle.input.steer * CAR_SPEC.steerLockDeg, null, now);
+    }
     const shadows = Render.quality.shadows > 0, opp = [];
     const right = this._camRight || (this._camRight = new THREE.Vector3());
     right.set(1, 0, 0).applyQuaternion(cam.quaternion);
@@ -519,7 +544,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);

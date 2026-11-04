@@ -2,6 +2,9 @@
 //  RENDER – Ghost-Fahrzeug, TV-Kamerapositionen, Detailstufen für KI-Autos
 // ============================================================================
 
+/** Lackierung des Safety Cars (silber/orange) */
+const SC_TEAM = { id: 'sc', name: 'Safety Car', short: 'SC', colors: ['#c9ccd2', '#ff8a00', '#121212'], pattern: 'stripe', sponsors: ['SAFETY', 'CAR'] };
+
 /** Halbtransparentes Fahrzeug, das die Bestrunde nachfährt */
 class GhostCar {
   constructor(team, number) {

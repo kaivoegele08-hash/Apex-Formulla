@@ -201,7 +201,7 @@ class Vehicle {
     this.time = 0; this.distance = 0;
     this.shiftDenied = 0; this.lastShiftTime = -10;
     this.events = [];   // {type, value} für Audio/UI
-    this.surfVib = 0; this.kerbVib = 0; this.offTrackWheels = 0; this.limitWheels = 0;
+    this.surfVib = 0; this.kerbVib = 0; this.offTrackWheels = 0; this.limitWheels = 0; this.inPitLane = false; this.pitAuto = false; this.lapDeploy = 0;
   }
 
   setCompound(id, temp = 70) { for (const w of this.wheels) w.tyre.setCompound(id, temp); }
@@ -278,8 +278,12 @@ class Vehicle {
     if (this.track) {
       const loc = this.track.locate(this.pos.x, this.pos.z, this.trackIdx, this._loc);
       this.trackIdx = loc.i; this.lateral = loc.d;
+      const sPrev = this.trackS;
       this.trackS = this.track.S[loc.i] + loc.f * this.track.ds;
+      if (sPrev > this.track.length - 60 && this.trackS < 60) this.lapDeploy = 0;   // neue Runde: Einsatzbudget zurücksetzen
       this.inAeroZone = this.track.aero[loc.i] === 1;
+      const P = this.track.pit;
+      this.inPitLane = !!(P && P.inPit[loc.i] && (loc.d >= 0 ? 1 : 0) === P.s && Math.abs(loc.d) > this.track.BD[P.s][loc.i] - 0.3);
     } else this.inAeroZone = true;
 
     this._controls(h);
@@ -526,6 +530,7 @@ class Vehicle {
       }
       if (this.soc >= max) Ph = 0;
       if (this.soc <= 0) Pd = 0;
+      if (this.lapDeploy >= (ers.lapDeployMJ + (this.overtakeActive ? 0.5 : 0)) * 1e6) Pd = 0;   // Einsatzgrenze je Runde
     }
     const w = Math.max(this.engOmega, 400);
     this.kTorque = clamp((Pd - Ph) / w, -ers.maxCrankNm, ers.maxCrankNm);
@@ -866,11 +871,20 @@ class Vehicle {
       R.mulXYZ(c[0], c[1], c[2], tp);
       const px = p.x + tp.x, pz = p.z + tp.z;
       const loc = tr.locate(px, pz, this.trackIdx, this._loc);
-      const side = loc.d >= 0 ? 1 : 0;
-      const bd = tr.BD[side][loc.f < 0.5 ? loc.i : (loc.i + 1) % tr.N];
-      const pen = Math.abs(loc.d) - bd;
+      const side = loc.d >= 0 ? 1 : 0, jn = loc.f < 0.5 ? loc.i : (loc.i + 1) % tr.N;
+      let bd = tr.BD[side][jn], pen, inward = 1;
+      const P = tr.pit;
+      if (P && side === P.s && P.inPit[jn]) {
+        const far = bd + PIT_LANE_W, a = Math.abs(loc.d);
+        if (this.inPitLane) {
+          // in der Boxengasse: Außenwand (Garagen) und – außerhalb der Öffnungen – die Boxenmauer von hinten
+          if (a > far) pen = a - far;
+          else if (a < bd && P.inPit[jn] === 1) { pen = bd - a; inward = -1; }
+          else continue;
+        } else pen = a - (P.inPit[jn] === 2 ? far : bd);   // Öffnung: durchfahren bis zur Außenwand
+      } else pen = Math.abs(loc.d) - bd;
       if (pen <= 0) continue;
-      const sg = loc.d >= 0 ? 1 : -1;
+      const sg = (loc.d >= 0 ? 1 : -1) * inward;
       const nx = -sg * tr.RX[loc.i], nz = -sg * tr.RZ[loc.i];
       // Relativgeschwindigkeit am Kontaktpunkt
       const rx = tp.x, ry = tp.y, rz = tp.z, v = this.vel, av = this.angVel;
@@ -979,7 +993,7 @@ class Vehicle {
     const max = this.spec.ers.battMJ * 1e6;
     const P = this.kTorque * this.engOmega * ((this.clutchLocked && this.gear > 0) ? 1 : 0);
     this.ersPower = P;
-    if (P > 0) this.soc -= P / 0.95 * h;
+    if (P > 0) { this.soc -= P / 0.95 * h; this.lapDeploy += P * h; }
     else this.soc -= P * 0.9 * h;
     this.soc = clamp(this.soc, 0, max);
   }

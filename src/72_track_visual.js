@@ -256,8 +256,9 @@ class TrackVisual {
         for (let k = 0; k <= n; k += 2) { const j = (j0 + k) % N; posts.push([j, sg * (T.BD[s][j] + 0.12), ground(j), 0.8]); }
       }
       // Fangzaun auf ganzer Länge hinter der Barriere
-      this._vface(fence, s, 0, N, j => sg * (T.BD[s][j] + 0.6), ground, j => ground(j) + 3.6, true, 3.2, 0, 1.3);
-      for (let j = 0; j < N; j += 3) posts.push([j, sg * (T.BD[s][j] + 0.62), ground(j), 3.7]);
+      // (ohne die Öffnungen der Boxenein- und -ausfahrt)
+      for (const [j0, n] of this._runs(j => T.barT[s][j] !== BARRIER.NONE)) this._vface(fence, s, j0, n, j => sg * (T.BD[s][j] + 0.6), ground, j => ground(j) + 3.6, true, 3.2, 0, 1.3);
+      for (let j = 0; j < N; j += 3) if (T.barT[s][j] !== BARRIER.NONE) posts.push([j, sg * (T.BD[s][j] + 0.62), ground(j), 3.7]);
     }
     if (!wall.empty) this._add(wall.build(), M.wall, { name: 'walls', cast: true });
     if (!ads.empty) this._add(ads.build(), M.ads, { name: 'adWalls', cast: true });
@@ -388,14 +389,15 @@ class TrackVisual {
       const len = n * T.ds;
       const bd = T.BD[s][jm];
       const yaw = Math.atan2(T.TX[jm], T.TZ[jm]);
-      const laneW = 13, depth = 18, hgt = 10;
+      const laneW = PIT_LANE_W, depth = 18, hgt = 10;
+      const laneH = (j) => T.pit ? T.Y[j] + T.pit.H[j] : base;
       const base = T.visualHeight(jm, sg * bd) - 0.02;
       // Boxengasse
       const lane = new GeoBuilder();
-      this._strip(lane, ja, n, j => sg > 0 ? [T.BD[s][j] + 0.35, T.BD[s][j] + laneW] : [-(T.BD[s][j] + laneW), -(T.BD[s][j] + 0.35)], { vScale: 8, hFn: (j) => base + 0.01 });
+      this._strip(lane, ja, n, j => sg > 0 ? [T.BD[s][j] + 0.35, T.BD[s][j] + laneW] : [-(T.BD[s][j] + laneW), -(T.BD[s][j] + 0.35)], { vScale: 8, hFn: (j) => laneH(j) + 0.01 });
       this._add(lane.build(), M.pit, { name: 'pitLane' });
       const pl = new GeoBuilder();
-      this._strip(pl, ja, n, j => sg > 0 ? [T.BD[s][j] + 4.0, T.BD[s][j] + 4.2] : [-(T.BD[s][j] + 4.2), -(T.BD[s][j] + 4.0)], { vScale: 4, hFn: () => base + 0.015 });
+      this._strip(pl, ja, n, j => sg > 0 ? [T.BD[s][j] + 4.0, T.BD[s][j] + 4.2] : [-(T.BD[s][j] + 4.2), -(T.BD[s][j] + 4.0)], { vScale: 4, hFn: (j) => laneH(j) + 0.015 });
       this._add(pl.build(), M.paint, { name: 'pitLine' });
       const off = bd + laneW + depth / 2;
       const cx = T.X[jm] + T.RX[jm] * sg * off, cz = T.Z[jm] + T.RZ[jm] * sg * off;

@@ -200,7 +200,7 @@ class LapTiming {
     }
     this.prevS = s;
     // Track Limits: alle vier Räder jenseits der weißen Linie
-    if (this.started && v.speed > 12) {
+    if (this.started && v.speed > 12 && !v.inPitLane && !v.pitAuto) {
       if (v.limitWheels >= 4) {
         this.limT += h; this.limBackT = 0;
         if (!this.limOut && this.limT > 0.12) { this.limOut = true; this.violations++; this.invalidate('Track Limits'); this._emit('limits', this.violations); }
@@ -247,7 +247,10 @@ class RaceSession {
     this.stateT = 0; this.holdT = 1.0 + this.rng() * 2.0;
     this.flag = 'green'; this.leaderDone = false; this.finishOrder = []; this.messages = [];
     this.bestSectors = [Infinity, Infinity, Infinity]; this.fastest = { time: Infinity, entry: null, lap: 0 };
-    this.slipT = 0;
+    this.slipT = 0; this.stratT = 0;
+    this.mandatory = opts.mandatory ?? this.laps >= 10;          // Pflichtstopp: zwei verschiedene Trockenmischungen
+    this.safetyCarOn = opts.safetyCar !== false;
+    this.sc = null; this.zones = []; this.playerFlag = 'green'; this.flagT = 0; this.prevAhead = new Map();
     const T = this.track, L = T.length;
     this.entries = opts.entries.map((e, idx) => {
       const v = new Vehicle(CAR_SPEC, e.setup || {});
@@ -258,6 +261,8 @@ class RaceSession {
         active: true, retired: false, finished: false, finishTime: null, penalty: 0, warnings: 0,
         distance: -1e9, pos: idx + 1, gridPos: idx + 1, marks: new Float64Array((this.laps + 3) * RACE_MARKS).fill(NaN), markIdx: -1,
         ghostT: 0, jump: false, gridX: 0, gridZ: 0, pitStops: 0, lastHit: -10,
+        pitPlan: null, pitting: false, pitPilot: null, used: new Set([e.compound || 'medium']), stintStart: 0, penaltyServed: 0,
+        teamIdx: Math.max(0, TEAMS.findIndex(t => t.id === e.team)), stopLap: 0.3 + this.rng() * 0.35,
       };
       if (!e.player) {
         const prof = e.profile || makeAIProfile(e.driver, opts.aiStrength ?? 1, this.rng);
@@ -303,7 +308,9 @@ class RaceSession {
     if (Damage.terminal(v) && !en.retired) this._retire(en, 'Unfall');
   }
   _retire(en, why) {
-    en.retired = true; en.active = !en.player ? false : en.active; en.retireReason = why;
+    en.retired = true; en.retireReason = why;
+    // Unfallwrack bleibt als Hindernis stehen (gelbe Flagge), bis es geborgen wird
+    if (this.state === 'race') { en.wreck = true; en.wreckT = 0; this._neutralize(en); } else if (!en.player) en.active = false;
     this.msg(`${en.name} ist ausgeschieden (${why})`, en, 'out');
     Events.emit('race:retired', en, why);
   }
@@ -319,6 +326,7 @@ class RaceSession {
       const done = en.timing.laps.length;
       if (!en.finished && (done >= this.laps || this.leaderDone)) {
         en.finished = true; en.finishTime = en.timing.time; this.finishOrder.push(en);
+        if (this.mandatory && en.used.size < 2) { en.penalty += 30; this.msg(`${en.name}: 30 s Strafe – Pflichtstopp nicht erfüllt`, en, 'pen'); }
         if (!this.leaderDone) { this.leaderDone = true; this.flag = 'chequered'; this.msg(`${en.name} gewinnt das Rennen!`, en, 'win'); }
         Events.emit('race:finished', en);
       }
@@ -327,6 +335,7 @@ class RaceSession {
       if (en.player) Events.emit('race:sector', data);
     } else if (type === 'limits') {
       en.warnings = data;
+      if (en.ai) en.ai.caution = Math.min(0.025, en.ai.caution + 0.006);   // nach Verwarnung vorsichtiger
       if (data <= 3) { if (en.player) Events.emit('race:limits', data, data === 3 ? 'Schwarz-weiße Flagge' : `Verwarnung ${data}/3`); }
       else { en.penalty += 5; this.msg(`${en.name}: 5 s Zeitstrafe (Track Limits)`, en, 'pen'); if (en.player) Events.emit('race:limits', data, '5 s Zeitstrafe'); }
     }
@@ -356,16 +365,20 @@ class RaceSession {
         for (const e of this.entries) { e.timing.startRace(e.timing.time, e.vehicle.trackS); if (e.ai) e.ai.launch(this.time); }
       }
     }
-    const ctx = { cars: this.entries, state: aiState, time: this.time, me: null, cap: 0 };
+    const ctx = { cars: this.sc && this.sc.car ? this.entries.concat([this.sc.car]) : this.entries, state: aiState, time: this.time, me: null, cap: 0 };
+    if (this.sc && this.sc.car) this._stepSafetyCar(h);
     for (const e of this.entries) {
       if (!e.active) continue;
       const v = e.vehicle;
       // Spieler in der Startaufstellung: Kupplung getrennt halten (Gas geben zum Vorbereiten ist erlaubt)
       if (e.player && !e.ai && this.state !== 'race') v.input.clutch = 1;
-      if (e.ai) {
+      this._pitLogic(e);
+      if (e.wreck) { v.input.throttle = 0; v.input.brake = 1; v.input.steer = 0; e.wreckT += h; if (!e.player && e.wreckT > (this.sc ? 20 : 14)) { e.wreck = false; e.active = false; } }
+      const drv = e.retired ? null : (e.pitPilot || e.ai);
+      if (drv) {
         ctx.me = e; ctx.cap = e.finished ? 52 : 0;
-        e.ai.control(h, ctx);
-        if (e.ai.needsReset) this._recover(e);
+        drv.control(h, ctx);
+        if (drv.needsReset && !e.pitting) this._recover(e);
       }
       v.step(h);
       if (!e.player) v.events.length = 0;
@@ -399,12 +412,196 @@ class RaceSession {
     });
     // Windschatten / verwirbelte Luft (≈ 20 Hz)
     this.slipT -= h;
-    if (this.slipT <= 0) { this.slipT = 0.05; this._aeroWake(); this._positions(); this._overtakeDetect(); }
+    if (this.slipT <= 0) { this.slipT = 0.05; this._aeroWake(); this._positions(); this._overtakeDetect(); this._flags(0.05); }
+    if (this.sc) this._scLogic(h);
+    this.stratT -= h;
+    if (this.stratT <= 0) { this.stratT = 1; for (const e of this.entries) this._strategy(e); }
     // Rennende: alle im Ziel oder ausgeschieden
     if (this.leaderDone && !this.over) {
       const left = this.entries.filter(e => !e.finished && !e.retired);
       if (!left.length || (this.player && (this.player.finished || this.player.retired) && this.time - this.finishOrder[0].finishTime > 75)) { this.over = true; Events.emit('race:over'); }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Boxenstopps
+  // ---------------------------------------------------------------------------
+  /** Box anfordern/abbrechen (Spieler): plan = { compound, repair } */
+  togglePit(e, plan) {
+    if (e.pitting) return 'läuft';
+    if (e.pitPlan) { e.pitPlan = null; return 'abgebrochen'; }
+    e.pitPlan = Object.assign({ why: 'Spieler' }, plan); return 'angefordert';
+  }
+  _damaged(v) { const H = v.health; return H.fw < 0.97 || H.rw < 0.97 || H.floor < 0.97 || H.susp.some(x => x < 0.97); }
+  _pitLogic(e) {
+    const T = this.track, P = T.pit, v = e.vehicle;
+    if (!P || e.retired || this.state !== 'race' || e.pitting) return;
+    // ohne Anforderung in die Gasse gefahren → Standardstopp
+    if (!e.pitPlan && v.inPitLane) e.pitPlan = { compound: v.compound === 'medium' ? 'hard' : 'medium', repair: true, why: 'Spieler' };
+    if (!e.pitPlan) return;
+    const L = T.length, dIn = ((P.sIn - v.trackS) % L + L) % L, rel = T.pitRel(v.trackS);
+    if (dIn < 180 || (rel >= 0 && rel < P.open * T.ds) || v.inPitLane) this._beginPit(e);
+  }
+  _beginPit(e) {
+    const P = this.track.pit, plan = e.pitPlan, v = e.vehicle;
+    e.pitting = true;
+    let drv = e.ai;
+    if (!drv || e.player) { drv = e.pitPilot = new AIDriver(v, this.line, { skill: 0.97, aggression: 0, consistency: 1, reaction: 0 }, 77); }
+    const repair = plan.repair !== false && this._damaged(v);
+    const pending = Math.max(0, e.penalty - e.penaltyServed);
+    const service = 2.2 + this.rng() * 0.7 + (repair ? 6.5 : 0) + pending;
+    drv.startPit({ boxS: P.boxes[e.teamIdx % P.boxes.length], serviceTime: service,
+      onService: () => this._service(e, plan, repair, service, pending),
+      onDone: () => { e.pitting = false; e.pitPilot = null; v.pitAuto = false; Events.emit('race:pitdone', e); },
+      onAbort: () => { e.pitting = false; e.pitPilot = null; v.pitAuto = false; if (e.player) Events.emit('race:pitmissed', e); } });
+    if (e.player) Events.emit('race:pitentry', e, plan);
+  }
+  _service(e, plan, repair, t, pending) {
+    const v = e.vehicle;
+    v.setCompound(plan.compound, 80);
+    if (repair) { const toe = v.health.toe; Damage.repair(v); toe.fill(0); }
+    e.used.add(plan.compound); e.pitStops++; e.stintStart = e.distance; e.penaltyServed += pending;
+    e.pitPlan = null;
+    const txt = `${e.name}: Boxenstopp ${t.toFixed(1).replace('.', ',')} s · ${COMPOUNDS[plan.compound].name}${repair ? ' · Reparatur' : ''}${pending ? ` · ${pending} s Strafe abgesessen` : ''}`;
+    this.msg(txt, e, 'pit');
+    Events.emit('race:service', e, t, { plan, repair });
+  }
+  /** KI-Strategie (1 Hz): Reifenverschleiß, Pflichtstopp, Schaden, Safety Car */
+  _strategy(e) {
+    if (!e.ai || e.player || e.pitting || e.pitPlan || e.finished || e.retired || this.state !== 'race' || !this.track.pit) return;
+    const L = this.track.length, done = e.timing.laps.length, rem = this.laps - done;
+    if (rem < 1) return;
+    const v = e.vehicle, wear = Math.max(...v.wheels.map(w => w.tyre.wear));
+    const stint = (e.distance - e.stintStart) / L, cur = v.compound;
+    const rateM = stint > 1 ? wear / stint / COMPOUNDS[cur].wear : 0.042;     // Verschleiß je Runde, auf „Mittel“ normiert
+    const life = (c) => 0.66 / (rateM * COMPOUNDS[c].wear);                      // Runden bis zur Verschleißgrenze
+    const mustStop = this.mandatory && e.used.size < 2;
+    const endWear = wear + rateM * COMPOUNDS[cur].wear * rem;
+    let why = '';
+    if (wear > 0.66 && rem > 1) why = 'Reifen';
+    else if ((v.health.fw < 0.6 || v.health.rw < 0.55) && rem > 4) why = 'Schaden';
+    else if (mustStop && rem <= 2) why = 'Pflichtstopp';
+    else if (this.sc && this.sc.kind && rem > 3 && wear > 0.22 && (mustStop || endWear > 0.66)) why = 'Safety Car';
+    else if (mustStop && done >= Math.floor(this.laps * e.stopLap) && endWear > 0.3) why = 'Plan';
+    else if (!mustStop && endWear > 0.72 && life(cur) - stint < 1.5 && rem > 2) why = 'Reifen';
+    if (!why) return;
+    // nicht gleichzeitig mit dem Teamkollegen (eine Box je Team)
+    if (this.entries.some(o => o !== e && o.team === e.team && (o.pitting || o.pitPlan))) return;
+    const order = ['soft', 'medium', 'hard'];
+    let pick = order.find(c => life(c) >= rem) || 'hard';
+    if (mustStop && e.used.has(pick)) pick = order.find(c => !e.used.has(c) && life(c) >= rem * 0.9) || order.find(c => !e.used.has(c));
+    e.pitPlan = { compound: pick, repair: true, why };
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Flaggen, Safety Car, virtuelles Safety Car
+  // ---------------------------------------------------------------------------
+  /** Unfall: je nach Lage gelbe Flagge, VSC oder Safety Car */
+  _neutralize(en) {
+    const lead = (this.order || this.entries)[0], rem = this.laps - (lead ? lead.timing.laps.length : 0);
+    if (!this.safetyCarOn || rem <= 2 || this.leaderDone) return;
+    if (this.sc) { this.sc.t = Math.min(this.sc.t, 10); return; }        // läuft schon → verlängern
+    this._startSC(this.rng() < 0.55 ? 'sc' : 'vsc');
+  }
+  _startSC(kind) {
+    const T = this.track, L = T.length, lead = (this.order || this.entries).find(e => !e.retired) || this.entries[0];
+    this.sc = { kind, t: 0, phase: 'deploy', startLaps: lead.timing.laps.length, car: null, dur: 30 + this.rng() * 15 };
+    if (kind === 'sc') {
+      const v = new Vehicle(CAR_SPEC, {}); v.setCompound('hard', 90);
+      const s = (lead.vehicle.trackS + 450) % L;
+      v.placeOnTrack(T, s, this.line.offsetAt(s));
+      const ai = new AIDriver(v, this.line, { skill: 0.95, aggression: 0, consistency: 1, reaction: 0 }, 999);
+      ai.flagCap = 0.75; ai.noPass = true;
+      this.sc.car = { vehicle: v, ai, sc: true, active: true, name: 'Safety Car', team: 'sc', distance: lead.distance + 450, idx: -1 };
+    }
+    this.msg(kind === 'sc' ? 'SAFETY CAR' : 'VIRTUELLES SAFETY CAR', null, 'sc');
+    Events.emit('race:sc', kind, 'deploy');
+  }
+  _stepSafetyCar(h) {
+    const c = this.sc.car, v = c.vehicle, lead = (this.order || this.entries).find(e => !e.retired);
+    c.ai.control(h, { cars: [], me: null, state: 'race', time: this.time, cap: 0 });
+    v.step(h); v.events.length = 0;
+    if (lead) { let ds = v.trackS - lead.vehicle.trackS; const L = this.track.length; if (ds < -L / 2) ds += L; if (ds > L / 2) ds -= L; c.distance = lead.distance + ds; }
+  }
+  _scLogic(h) {
+    const sc = this.sc, T = this.track, L = T.length;
+    sc.t += h;
+    const lead = (this.order || this.entries).find(e => !e.retired && !e.finished);
+    if (!lead) { this.sc = null; return; }
+    if (sc.kind === 'vsc') {
+      if (sc.phase === 'deploy' && sc.t > sc.dur) { sc.phase = 'ending'; sc.t = 0; this.msg('VSC endet', null, 'sc'); Events.emit('race:sc', 'vsc', 'ending'); }
+      else if (sc.phase === 'ending' && sc.t > 4) this._green();
+    } else {
+      // Safety Car: nach zwei Führungsrunden hinter dem SC kommt es herein, Neustart an der Linie
+      if (sc.phase === 'deploy' && lead.timing.laps.length - sc.startLaps >= 1 && sc.t > 75) { sc.phase = 'in'; this.msg('Safety Car kommt in dieser Runde herein', null, 'sc'); Events.emit('race:sc', 'sc', 'in'); }
+      if (sc.phase === 'in' && sc.car && T.pit) {
+        const dIn = ((T.pit.sIn - sc.car.vehicle.trackS) % L + L) % L;
+        if (dIn < 60) { sc.car = null; sc.phase = 'restart'; sc.restartLaps = lead.timing.laps.length; }
+      }
+      if (sc.phase === 'restart' && lead.timing.laps.length > sc.restartLaps) this._green();
+    }
+  }
+  _green() { this.sc = null; this.msg('GRÜNE FLAGGE', null, 'green'); Events.emit('race:sc', null, 'green'); }
+  /** Gelbe Zonen um langsame/stehende Autos; Flaggen je Fahrer; Strafen für den Spieler (20 Hz) */
+  _flags(dt) {
+    const T = this.track, L = T.length, live = this.state === 'race' && this.time - (this.greenAt || 0) > 8;
+    this.zones = [];
+    for (const e of this.entries) {
+      if (!e.active || e.finished) continue;
+      const v = e.vehicle;
+      const slow = live && !e.pitting && !v.inPitLane && v.speed < 14;
+      if (e.wreck || slow) e.yellowUntil = this.time + 4;
+      if ((e.yellowUntil || 0) > this.time) this.zones.push({ s: v.trackS, e });
+    }
+    const inYellow = (s, self) => this.zones.some(z => { if (z.e === self) return false; let d = z.s - s; if (d < -L / 2) d += L; if (d > L / 2) d -= L; return d > -40 && d < 260; });
+    const sc = this.sc, neutral = sc && sc.phase !== 'ending';
+    for (const e of this.entries) {
+      if (!e.ai || e.retired) continue;
+      const ai = e.ai, yel = inYellow(e.vehicle.trackS, e);
+      ai.noPass = !!neutral || yel; ai.scGap = sc && sc.kind === 'sc' ? 14 : 0;
+      let cap = yel ? 0.9 : 1;
+      if (sc && sc.kind === 'vsc' && sc.phase === 'deploy') cap = 0.7;
+      ai.queue = null;
+      if (sc && sc.kind === 'sc') {
+        // Kolonne: dem physisch nächsten Auto voraus folgen (Spitzenreiter → Safety Car), unabhängig von der Spur
+        cap = Math.min(cap, 0.95);
+        if (!e.pitting && !e.vehicle.inPitLane) {
+          let best = null, bd = 1e9;
+          const cand = sc.car ? this.entries.concat([sc.car]) : this.entries;
+          for (const o of cand) {
+            if (o === e || !o.active || o.pitting || o.vehicle.inPitLane) continue;
+            let ds = o.vehicle.trackS - e.vehicle.trackS; if (ds < 0) ds += L;
+            if (ds > 1 && ds < bd) { bd = ds; best = o; }
+          }
+          if (best && bd < L * 0.5) ai.queue = { v: best.vehicle, ds: bd };
+        }
+      }
+      ai.flagCap = cap;
+    }
+    // Spieler: Flagge, Überholen unter Gelb/SC, VSC-Tempo
+    const me = this.player; if (!me || me.retired || me.finished) { this.playerFlag = this.flag === 'chequered' ? 'chequered' : 'green'; return; }
+    const mv = me.vehicle, yel = inYellow(mv.trackS, me);
+    let blue = false;
+    for (const o of this.entries) {
+      if (o === me || !o.active || o.retired) continue;
+      let ds = o.vehicle.trackS - mv.trackS; if (ds < -L / 2) ds += L; if (ds > L / 2) ds -= L;
+      if (ds < 0 && ds > -70 && o.distance - me.distance > L * 0.5) blue = true;
+      const ahead = o.distance > me.distance, was = this.prevAhead.get(o.idx);
+      if (live && was === true && !ahead && (yel || neutral) && o.vehicle.speed > 18 && !mv.inPitLane && !o.vehicle.inPitLane && !o.pitting && Math.abs(ds) < 60) {
+        me.penalty += 5; this.msg(`Du: 5 s Zeitstrafe – Überholen unter ${neutral ? (sc.kind === 'sc' ? 'Safety Car' : 'VSC') : 'gelber Flagge'}`, me, 'pen');
+        Events.emit('race:limits', 0, `5 s Strafe: Überholen unter ${neutral ? (sc.kind === 'sc' ? 'Safety Car' : 'VSC') : 'Gelb'}`);
+      }
+      this.prevAhead.set(o.idx, ahead);
+    }
+    this.vscMax = null;
+    if (sc && sc.kind === 'vsc' && sc.phase === 'deploy') {
+      const prof = this.line.profile(1), vmax = prof[mv.trackIdx] * 0.7 * 1.06;
+      this.vscMax = vmax;
+      if (mv.vLong > vmax && !mv.inPitLane) me.vscOver = (me.vscOver || 0) + dt;
+      if (me.vscOver > 3 && !me.vscPen) { me.vscPen = true; me.penalty += 5; this.msg('Du: 5 s Zeitstrafe – zu schnell unter VSC', me, 'pen'); Events.emit('race:limits', 0, '5 s Strafe: zu schnell unter VSC'); }
+    } else { me.vscOver = 0; me.vscPen = false; }
+    const f = this.flag === 'chequered' ? 'chequered' : neutral ? sc.kind : (sc && sc.phase === 'ending') ? 'vscEnd' : yel ? 'yellow' : blue ? 'blue' : 'green';
+    if (f !== this.playerFlag) { this.playerFlag = f; Events.emit('race:flag', f); }
   }
 
   /** KI zurück auf die Strecke setzen (kurzzeitig ohne Kollision) */
@@ -470,7 +667,7 @@ class RaceSession {
     this._positions();
     const lead = this.order[0];
     const rows = this.order.map((e, i) => {
-      const total = e.finished ? e.finishTime - this.greenAt + e.penalty : null;
+      const total = e.finished ? e.finishTime - this.greenAt + (e.penalty - e.penaltyServed) : null;
       return { e, pos: i + 1, name: e.name, team: e.team, number: e.number, laps: e.timing.laps.length, best: e.timing.bestLap, total, penalty: e.penalty, retired: e.retired, finished: e.finished, gap: i === 0 ? null : this.gap(lead, e) };
     });
     // Zeitstrafen nachträglich einrechnen (nur unter Fahrern im Ziel mit gleicher Rundenzahl)

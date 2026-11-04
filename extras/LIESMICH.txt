@@ -11,6 +11,11 @@ SPIELEN
   Startplatz und Schaden wählen. In der Startaufstellung wird das Auto
   gehalten (Gas geben zum Vorbereiten ist erlaubt); wenn die fünf roten
   Lichter erlöschen, geht es los.
+  Boxenstopp: Taste B (am Lenkrad belegbar) fordert die Box an, Reifen und
+  Reparatur wählst du im Pausemenü. Ab der Boxeneinfahrt fährt ein Autopilot
+  mit 80 km/h zu deiner Teambox und zurück auf die Strecke.
+  Ab 10 Runden Pflichtstopp: zwei verschiedene Trockenmischungen.
+  Flaggen: Gelb/Safety Car/VSC = nicht überholen (sonst 5 s Strafe).
   Strecken: Kurstadt Ringpark und Falkenried-Ring (nach deiner Skizze).
   Fahrhilfe „Ideallinie“: grün = Gas, gelb = Gas weg, rot = bremsen
   (Einstellungen → Fahrhilfen bzw. in der Renn-/Testfahrt-Vorbereitung).
