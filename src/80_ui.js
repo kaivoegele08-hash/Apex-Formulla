@@ -606,7 +606,9 @@ const UI = {
     return h('div.card', { style: { maxWidth: '720px' } }, h('h3', 'Lautstärke'), s('Gesamt', 'master'), s('Motor', 'engine'), s('Effekte', 'effects'), s('Funk', 'radio'), s('Umgebung', 'ambient'),
       fieldRow('Motorklang', toggle([{ value: 'physik', label: 'Physikalisches Modell' }, { value: 'synth', label: 'Einfache Synthese' }], A.engineModel || 'physik', v => { A.engineModel = v; AudioSys.setVolumes(A); Game.saveSettings(); })),
       h('div.hint', 'Das physikalische Modell berechnet den Klang aus Zylindern, Ventilen, Krümmern und Endrohr (Wellenleiter, AudioWorklet). Bei Knacksern auf schwachen Rechnern „Einfache Synthese“ wählen.'),
-      h('div.actions', btn('Funk-Signal testen', () => { AudioSys.unlock(); AudioSys.radio(); }, 'small')),
+      fieldRow('Renningenieur (Funk)', toggle([{ value: 'off', label: 'Aus' }, { value: 'text', label: 'Nur Text' }, { value: 'voice', label: 'Text + Stimme' }], A.radioMode || 'voice', v => { A.radioMode = v; Game.saveSettings(); })),
+      h('div.hint', 'Der Renningenieur meldet Position, Abstände, Reifenzustand, Schaden, Safety Car und Wetter. Die Stimme nutzt die Sprachausgabe des Systems – unter Linux ggf. „speech-dispatcher“ installieren, sonst bleibt es bei Text.'),
+      h('div.actions', btn('Funk-Signal testen', () => { AudioSys.unlock(); AudioSys.radio(); }, 'small'), btn('Renningenieur testen', () => { AudioSys.unlock(); Radio.reset(); Radio.say('Funkcheck. Hörst du mich? Reifen und Bremsen sind im Fenster.', 2); Radio.tick(0); }, 'small')),
       h('p', { style: { fontSize: '12px', marginTop: '14px', opacity: 0.75 } }, 'Motorklang-Modell nach „enginesound“ von DasEtwas (MIT-Lizenz, © 2020 DasEtwas) und dem Paper „Physically informed car engine sound synthesis for virtual and augmented environments“ (Baldan, Lachambre, Delle Monache, Boussard). Alle Klänge werden im Browser erzeugt, es werden keine Aufnahmen verwendet.'));
   },
 

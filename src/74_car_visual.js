@@ -356,6 +356,39 @@ function grooveTex() {
   return _grooveTex;
 }
 
+/** Abgefallene Teile: fliegen mit dem Schwung des Autos weg, springen auf und bleiben liegen (rein optisch) */
+const CarDebris = {
+  list: [], ground: null, max: 24,
+  detach(part, veh, dir) {
+    if (typeof Render === 'undefined' || !Render.scene) return;
+    part.updateWorldMatrix(true, true);
+    const o = part.clone(true); o.visible = true; o.rotation.set(0, 0, 0); o.position.set(0, 0, 0); o.scale.set(1, 1, 1);
+    const g = new THREE.Group(); g.add(o);
+    part.matrixWorld.decompose(g.position, g.quaternion, g.scale);
+    Render.scene.add(g);
+    const r = () => Math.random() - 0.5;
+    this.list.push({ g, v: new THREE.Vector3(veh.vel.x * 0.75 + r() * 4, 1.5 + Math.random() * 2.5, veh.vel.z * 0.75 + r() * 4), w: new THREE.Vector3(r() * 9, r() * 9, r() * 9), t: 0, rest: false });
+    while (this.list.length > this.max) this._drop(this.list.shift());
+  },
+  _drop(d) { if (d.g.parent) d.g.parent.remove(d.g); },
+  update(dt) {
+    const q = this._q || (this._q = new THREE.Quaternion()), e = this._e || (this._e = new THREE.Euler());
+    for (const d of this.list) {
+      d.t += dt; if (d.rest) continue;
+      d.v.y -= 9.81 * dt; d.v.multiplyScalar(1 - 0.25 * dt);
+      d.g.position.addScaledVector(d.v, dt);
+      e.set(d.w.x * dt, d.w.y * dt, d.w.z * dt); q.setFromEuler(e); d.g.quaternion.multiply(q);
+      const gy = (this.ground ? this.ground(d.g.position.x, d.g.position.z) : 0) + 0.05;
+      if (d.g.position.y < gy) {
+        d.g.position.y = gy;
+        if (Math.abs(d.v.y) < 1.2 && d.v.length() < 3) { d.rest = true; continue; }
+        d.v.y = Math.abs(d.v.y) * 0.3; d.v.x *= 0.55; d.v.z *= 0.55; d.w.multiplyScalar(0.5);
+      }
+    }
+  },
+  clear() { for (const d of this.list) this._drop(d); this.list.length = 0; },
+};
+
 /** Ein sichtbares Fahrzeug */
 class CarVisual {
   constructor(team, number, { detail = 'high', physical = true } = {}) {
@@ -482,6 +515,33 @@ class CarVisual {
     this.tyreMat.map = L.grooves ? grooveTex() : null; this.tyreMat.color.setHex(L.grooves ? 0xffffff : 0x1b1b1d); this.tyreMat.needsUpdate = true;
   }
 
+  /**
+   * Sichtbarer Schaden: Flügel hängen durch und fallen ab (als Trümmer auf der Strecke),
+   * verbogene Aufhängung kippt das Rad, ein angeschlagener Motor qualmt. Reparatur stellt alles wieder her.
+   */
+  _damageLook(veh, now) {
+    const H = veh.health, D = this._dmg || (this._dmg = { fw: false, rw: false, smokeT: 0 });
+    // Frontflügel: ab 3 % Schaden schief, unter 55 % ab
+    const fwOff = H.fw < 0.55;
+    if (fwOff && !D.fw) { CarDebris.detach(this.fwInner, veh, -1); D.fw = true; }
+    if (!fwOff && D.fw && H.fw > 0.96) D.fw = false;
+    this.fwInner.visible = !D.fw;
+    if (!D.fw) { const b = clamp((1 - H.fw) / 0.45, 0, 1); this.fwInner.rotation.z = (this.number % 2 ? 1 : -1) * b * 0.09; this.fwInner.rotation.x = b * 0.06; this.fwInner.position.y = -b * 0.03; }
+    const rwOff = H.rw < 0.5;
+    if (rwOff && !D.rw) { CarDebris.detach(this.rwInner, veh, 1); D.rw = true; }
+    if (!rwOff && D.rw && H.rw > 0.96) D.rw = false;
+    this.rwInner.visible = !D.rw;
+    if (!D.rw) { const b = clamp((1 - H.rw) / 0.5, 0, 1); this.rwInner.rotation.z = (this.number % 2 ? -1 : 1) * b * 0.07; }
+    // Aufhängung: Rad kippt (Sturz) mit dem Schaden
+    for (let i = 0; i < 4; i++) { const b = 1 - H.susp[i]; this.wheels[i].root.rotation.z = b > 0.03 ? (i % 2 ? 1 : -1) * Math.min(0.3, b * 0.35) : 0; }
+    // Motor: Rauch aus dem Heck
+    const fx = typeof Render !== 'undefined' ? Render.fx : null;
+    if (fx && H.engine < 0.6 && now - D.smokeT > (0.03 + H.engine * 0.08)) {
+      D.smokeT = now; const R = veh.R, t = this._v; R.mulXYZ(0, 0.35, 1.9, t);
+      const k = 1 - H.engine, g = 0.18 + H.engine * 0.5;
+      fx.smoke.spawn(veh.pos.x + t.x, veh.pos.y + t.y, veh.pos.z + t.z, veh.vel.x * 0.4 + (Math.random() - 0.5), 0.8 + Math.random(), veh.vel.z * 0.4 + (Math.random() - 0.5), 1.2 + k * 1.5, 0.5, 2.2 + k, g, g, g, 0.35 + k * 0.3, 1.4, -0.2);
+    }
+  }
   /** Schatten nur von den großen Teilen (Kleinteile verdoppeln sonst die Draw Calls im Schattenpass) */
   setShadows(on) { this.root.traverse(o => { if (o.isMesh) o.castShadow = false; }); if (on) for (const m of this.shadowMeshes) m.castShadow = true; }
   setCompound(id) {
@@ -516,6 +576,7 @@ class CarVisual {
       vw.glow.emissiveIntensity = smoothstep(480, 1000, w.brakeTemp) * 2.5;
     }
     this.setCompound(veh.compound);
+    if (veh.health) this._damageLook(veh, now);
     // Aktive Aerodynamik sichtbar: Klappen öffnen im Geradenmodus
     const fl = veh.aeroFlap;
     this.rwPivot.rotation.x = lerp(0.52, 0.10, fl);

@@ -5,7 +5,7 @@
 
 const DEFAULT_SETTINGS = {
   graphics: { preset: 'hoch', custom: {}, showFps: false, frameGraph: false, autoQuality: true },
-  audio: { master: 0.8, engine: 0.85, effects: 0.8, radio: 0.8, ambient: 0.5, engineModel: 'physik' },
+  audio: { master: 0.8, engine: 0.85, effects: 0.8, radio: 0.8, ambient: 0.5, engineModel: 'physik', radioMode: 'voice' },
   aids: { tc: 1, abs: false, autoShift: false, autoClutch: true, aeroAuto: true, idealLine: 'full' },
   camera: {
     mode: 'chaseNear', chaseFov: 62, hideWheel: false, hideHands: false,
@@ -35,6 +35,7 @@ const Game = {
     Save.init();
     const migrated = Save.migrate();
     Save.onFull = () => UI.toast('Speicher des Browsers ist voll – bitte unter Einstellungen → Allgemein eine Sicherung als Datei speichern.', 8000);
+    this._firstRun = !Save.get('settings', null);
     this.settings = deepMerge(DEFAULT_SETTINGS, Save.get('settings', {}));
     this.season = Save.get('season', null);
     this.careerSlot = clamp(Save.get('careerSlot', 1) | 0, 1, 3);
@@ -65,6 +66,7 @@ const Game = {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'driving' && this.settings.game.autoPause) this.pause('Fenster bzw. Tab wurde verdeckt oder gewechselt (automatische Pause)');
     });
+    Radio.init();
     Events.on('lap:done', (t, valid) => { UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
     Events.on('lap:best', (t) => UI.hudMsg(`Neue Bestzeit ${fmtTime(t)}`, 3000));
     Events.on('quali:best', (t, pos) => { if (Net.session && Net.session.role === 'client') Net.session.qualiLap(t); UI.hudMsg(`Qualifying: ${fmtTime(t)} – vorläufig P${pos}`, 3200); AudioSys.radio(); });
@@ -74,7 +76,9 @@ const Game = {
     this._raceEvents();
     if (Input.repairNotes.length) setTimeout(() => UI.toast('Fehlerhafte Knopfbelegung entfernt (Lenk-/Pedalachse als Knopf): ' + Input.repairNotes.join(' · ') + ' – bitte bei Bedarf neu belegen.', 9000), 800);
     this.state = 'menu';
-    UI.show('main');
+    // Erster Start (oder ?welcome): Willkommens-Assistent; in automatisierten Tests nicht
+    const first = !this.settings.game.onboarded && this._firstRun;
+    if (/[?&]welcome/.test(location.search) || (first && !navigator.webdriver)) UI.show('welcome'); else UI.show('main');
     $('boot').classList.add('hidden');
     window.__apexReady = true;
     this.loop.start();
@@ -205,6 +209,7 @@ const Game = {
     this.idealLine = new IdealLineVisual(track, this.getLine(track.id));
     Render.scene.add(this.idealLine.mesh);
     this.skids = new SkidMarks(); this.skids.ground = (x, z, hint) => track.heightAt(x, z, hint); Render.scene.add(this.skids.mesh);
+    CarDebris.clear(); CarDebris.ground = (x, z) => track.heightAt(x, z);
     return track;
   },
   _playerVisual() {
@@ -214,6 +219,7 @@ const Game = {
   },
   /** Alles entfernen, was zu einer Sitzung gehört */
   _teardown() {
+    CarDebris.clear(); Radio.reset(); if (this.school) { this.school.dispose(); this.school = null; }
     const sc = Render.scene;
     if (sc) {
       if (this.carVis) sc.remove(this.carVis.root);
@@ -255,6 +261,12 @@ const Game = {
     this.state = 'menu';
   },
 
+  /** Fahrschule: Testfahrt auf dem Ringpark (heute, trocken) mit geführten Funk-Hinweisen */
+  async startDrivingSchool() {
+    this.settings.game.track = 'ringpark'; this.settings.game.weather = 'dry';
+    await this.startTestDrive();
+    if (this.mode === 'test') this.school = new DrivingSchool();
+  },
   async startTestDrive() {
     this.netHost = null;
     await this._begin('Strecke wird aufgebaut …');
@@ -914,6 +926,8 @@ const Game = {
       this.skids.flush();
     }
     if (driving) { this._particles(dt); if (wx && wx.water > 0.12) this._spray(v, dt, wx.water); Render.updateParticles(dt); }
+    if (this.state !== 'paused') CarDebris.update(dt);
+    if (driving) { if (this.race) Radio.watch(this.race, dt); if (this.school && this.state === 'driving') this.school.update(dt, this.vehicle); Radio.tick(dt); }
     // Audio
     AudioSys.update(dt, v, { rain: wx ? wx.rain : 0, interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
     // Rumble (Controller): Kerbs/Aufsetzen/Einschlag stark, Schlupf/Blockieren schwach
@@ -951,7 +965,7 @@ const Game = {
     const st = wx.rain > 0.05 ? 'rain' : wx.water > 0.3 ? 'wet' : wx.cloud > 0.8 ? 'clouds' : 'dry';
     if (this._wxState && st !== this._wxState && (this.state === 'driving')) {
       const txt = { rain: 'Funk: Regen setzt ein!', wet: 'Funk: Regen hört auf – Strecke trocknet ab', clouds: 'Funk: Regen in wenigen Minuten erwartet', dry: 'Funk: Strecke ist trocken – Slicks!' }[st];
-      if (txt) { UI.hudMsg(txt, 3200); AudioSys.radio(); }
+      if (txt) { if (Radio.mode() === 'off') { UI.hudMsg(txt, 3200); AudioSys.radio(); } else Radio.say(txt.replace('Funk: ', ''), 2); }
     }
     this._wxState = st;
   },
@@ -1036,7 +1050,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { ModFolder, applyMods, applyEra, Net, NetHost, NetClient, NetProfile, NetPresence, AIDriverRef: AIDriver, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { ModFolder, applyMods, applyEra, Net, NetHost, NetClient, NetProfile, NetPresence, AIDriverRef: AIDriver, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, CarDebris, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);
