@@ -268,9 +268,11 @@ class RaceSession {
       if (!e.player) {
         const prof = e.profile || makeAIProfile(e.driver, opts.aiStrength ?? 1, this.rng);
         if ((opts.aiStrength ?? 1) > 1) v.trackGrip = 1 + ((opts.aiStrength ?? 1) - 1) * 0.6;   // über 100 %: etwas mehr Haftung
+        if (e.trackGrip) v.trackGrip = (v.trackGrip || 1) * e.trackGrip;                     // Karriere: Teamstärke
         en.ai = new AIDriver(v, this.line, prof, idx * 13 + 7);
+        en.ai.relPlayer = e.relPlayer || 0;                                                     // Karriere: Beziehung zum Spieler (−1…1)
         en.ai.hold();
-      }
+      } else if (e.trackGrip) v.trackGrip = e.trackGrip;
       v.onImpact = (sp, nx, nz) => this._onWall(en, sp, nx, nz);
       en.timing.on((type, data) => this._onTiming(en, type, data));
       return en;
@@ -415,6 +417,7 @@ class RaceSession {
         this._hurt(en, sp * (a.player || b.player ? 0.8 : 0.45), lx, lz);
       }
       if ((a.player || b.player) && sp > 3) Events.emit('race:contact', sp);
+      if (this.onContact && sp > 2) this.onContact(a, b, sp);
       if (sp > 2.5 && this.onMark) this.onMark('contact', (a.player || b.player) ? (a.player ? a : b).idx : a.idx, `Kontakt ${a.name} / ${b.name}`);
     });
     // Windschatten / verwirbelte Luft (≈ 20 Hz)
@@ -703,7 +706,13 @@ class RaceSession {
 }
 
 /** Startfeld zusammenstellen: Spieler im gewählten Team, KI-Fahrer der übrigen Plätze */
-function buildField({ playerTeam, playerName = 'Du', playerNumber = 77, size = 20, gridMode = 'random', playerGrid = 'back', rng = Math.random }) {
+function buildField({ playerTeam, playerName = 'Du', playerNumber = 77, size = 20, gridMode = 'random', playerGrid = 'back', rng = Math.random, drivers: pool = null }) {
+  if (pool) {   // Karriere: festes Fahrerfeld (Spielerplatz ist schon frei)
+    const list = pool.map(d => ({ driver: d, team: d.team, number: d.num, trackGrip: d.trackGrip, relPlayer: d.relPlayer }));
+    const pl = { driver: { name: playerName, nat: '', num: playerNumber, team: playerTeam, rating: 1 }, team: playerTeam, number: playerNumber, player: true };
+    list.splice(Math.floor(list.length / 2), 0, pl);
+    return list;
+  }
   const drivers = DRIVERS.slice();
   // Spieler übernimmt das zweite Cockpit seines Teams
   const mate = drivers.filter(d => d.team === playerTeam);

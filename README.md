@@ -4,6 +4,11 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
+**Neu: Karriere** – eigener Fahrer (Name, Nummer, Nation), mehrere Saisons über alle Strecken, Teams mit wechselnder
+Autostärke, Verträge mit Bedingungen, Fahrermarkt (KI wechselt, tritt zurück, Neulinge, Fahrerwechsel während der
+Saison), Beziehung zu jedem KI-Fahrer (wirkt auf Angriff/Verteidigung gegen dich), Social-Media-Feed mit Beiträgen von
+Fahrern, Team, Fans und Presse, eigene Beiträge und Antworten.
+
 **Neu: Mods** – Ordner `mods/` neben der HTML-Datei: Strecken (aus Eckpunkten + Kurvenradien, Rest automatisch),
 Teams, Fahrer und eigene Autos/Epochen. Laden über `mods/mods.js` oder (Chrome/Edge) Ordnerauswahl im Menü „Mods“.
 Anleitung `mods/README.txt`, KI-Prompt-Vorlagen in `mods/vorlagen/`.
@@ -73,6 +78,8 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `70`–`78` | Rendering, Strecke, Auto, Garage, Ghost, TV-Kameras |
 | `79_podium.js` | Fahrerfiguren, Siegerehrung |
 | `84_mods_ui.js` | Mod-Ordnerauswahl, Menü „Mods“ |
+| `51_career.js` | Karriere: Daten, Fahrermarkt, Beziehungen, Social Media (ohne DOM) |
+| `86_career_ui.js` | Karriere-Menüs |
 | `80_ui.js` | Menüs, HUD, Einstellungen |
 | `82_ui_race.js` | Rennvorbereitung, Ergebnis, Setup, Telemetrie, Renn-HUD |
 | `90_game.js` | Ablaufsteuerung |
@@ -89,6 +96,7 @@ tools/run-pure.sh tests/physik/test_sc.js        # Safety Car und VSC: Kolonne, 
 tools/run-pure.sh tests/physik/test_weather.js   # Regenrennen: Nässe, Reifenwechsel der KI
 tools/run-pure.sh tests/physik/test_season.js    # Qualifying-Schätzung, Meisterschaftswertung
 tools/run-pure.sh tests/physik/test_replay.js    # Wiederholung: Genauigkeit, Speicher, Ringpuffer, Regie
+tools/run-pure.sh tests/physik/test_career.js    # Karriere: 3 Saisons simuliert (Cockpits, Verträge, Beiträge)
 tools/run-pure.sh tests/physik/test_mods.js      # Mods: Strecke aus Eckpunkten, Teams/Fahrer, Auto-Epoche, KI-Runde
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
@@ -99,6 +107,7 @@ node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, 
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
 node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
 node tests/browser/phase6_test.js                # Wiederholung, Reifenspuren, Nachbearbeitung, Detailstufen
+node tests/browser/career_test.js                # Karriere: Start, Teamwahl, Rennen werten, Social Media, Saisonwechsel
 node tests/browser/mods_test.js                  # Mods: Laden, Menü, Fehler, Mod-Strecke fahren
 node tests/browser/era_test.js                   # Epochen: Auswahl, Fahrzeugdaten, Optik, HUD, Rennen
 ERA=e1990 tools/run-pure.sh tests/physik/test_ai.js   # KI-Runde mit einer bestimmten Epoche

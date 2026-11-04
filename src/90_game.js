@@ -35,6 +35,7 @@ const Game = {
     Save.init();
     this.settings = deepMerge(DEFAULT_SETTINGS, Save.get('settings', {}));
     this.season = Save.get('season', null);
+    this.career = Save.get('career', null); if (this.career && this.career.v !== CAREER_V) this.career = null;
     // Mods aus mods/mods.js (vor dem Modul geladen) übernehmen, danach die gewählte Epoche aktivieren
     try { applyMods((window.ApexMods && window.ApexMods.list) || []); } catch (e) { console.warn('[Mods]', e); }
     applyEra(this.settings.game.era || 'e2026');
@@ -96,7 +97,28 @@ const Game = {
   },
   endSeason() { this.season = null; this.seasonRound = false; Save.set('season', null); },
   startSeasonRound() { if (!this.season || Season.done(this.season)) return; this.seasonRound = true; this.startEvent(); },
-  startQuickRace() { this.seasonRound = false; this.startEvent(); },
+  startQuickRace() { this.seasonRound = false; this.careerRound = false; this.startEvent(); },
+  // ---------------------------------------------------------------------------
+  //  Karriere
+  // ---------------------------------------------------------------------------
+  saveCareer() { if (this.career) Save.set('career', this.career); },
+  newCareer(opts) { this.career = Career.create(opts); this.saveCareer(); },
+  endCareer() { this.career = null; this.careerRound = false; Save.set('career', null); },
+  startCareerRound() {
+    const c = this.career; if (!c || c.phase !== 'season') return;
+    this.seasonRound = false; this.careerRound = true; this.careerLog = { contacts: [], passes: [], pole: false };
+    this.startEvent();
+  },
+  /** Ergebnis in die Karriere übernehmen (einmal je Rennen) → Rückgabe: Zusammenfassung für die Anzeige */
+  finishCareerRace() {
+    const race = this.race, c = this.career;
+    if (!race || !c || !this.careerRound || race.careerScored) return null;
+    race.careerScored = true;
+    const log = this.careerLog || { contacts: [], passes: [] };
+    const sum = Career.afterRace(c, race.classification(), race.fastest, log, race.track.name);
+    this.saveCareer(); this.pendingGrid = null; this.careerRound = false;
+    return sum;
+  },
   /** Rennergebnis in die Saisonwertung übernehmen (einmal je Rennen) */
   scoreSeasonRace() {
     const race = this.race, S = this.season;
@@ -243,12 +265,17 @@ const Game = {
 
   /** Rennen-Parameter: Schnelles Rennen aus den Einstellungen, in der Meisterschaft aus der Saison */
   raceParams() {
-    const R = this.settings.race, G = this.settings.game, S = this.season && this.seasonRound ? this.season : null;
+    const R = this.settings.race, G = this.settings.game, C = this.careerRound && this.career ? this.career : null;
+    const S = C ? C.season : this.season && this.seasonRound ? this.season : null;
     if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
-    const trackId = S.tracks[S.round];
+    const trackId = TRACKS[S.tracks[S.round]] ? S.tracks[S.round] : 'ringpark';
+    if (C) return { era: C.era, trackId, laps: Season.lapsFor(S, this.getTrackModel(trackId)), opponents: 19, strength: C.settings.strength, weather: C.settings.weather, quali: C.settings.quali, qualiMin: C.settings.qualiMin, team: C.team, name: C.me.name, number: C.me.number, season: true, career: true };
     return { era: S.era || 'e2026', trackId, laps: Season.lapsFor(S, this.getTrackModel(trackId)), opponents: 19, strength: S.strength, weather: S.weather, quali: S.quali, qualiMin: S.qualiMin, team: S.team, name: S.playerName || 'Du', number: S.number, season: true };
   },
-  _field(P) { const R = this.settings.race; return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
+  _field(P) {
+    const R = this.settings.race;
+    if (P.career) { const c = this.career, f = buildField({ playerTeam: c.team, playerName: c.me.name, playerNumber: c.me.number, drivers: Career.raceDrivers(c) }); f.find(e => e.player).trackGrip = Career.grip(c, c.team); return f; }
+    return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
   /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
   startEvent() { const P = this.raceParams(); this.pendingGrid = null; if (P.quali) this.startQualifying(); else this.startRace(); },
 
@@ -269,6 +296,7 @@ const Game = {
       const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
       v.water = wx.water;
       v.setCompound(this._startCompound(qualiCompound(0)), 70);
+      if (P.career) v.trackGrip = Career.grip(this.career, this.career.team);
       v.placeOnTrack(track, track.length - 30, -track.HW[track.N - 15] * 0.42);
       v.gear = 1;
       this.applyAids();
@@ -285,6 +313,7 @@ const Game = {
     if (this.mode !== 'quali' || this.state === 'finished') return;
     const q = this.session;
     this.pendingGrid = q.grid();
+    if (this.careerLog) this.careerLog.pole = !!(this.pendingGrid[0] && this.pendingGrid[0].player);
     setTimeout(() => {
       if (this.session !== q) return;
       if (this.state === 'paused') UI.hideScreens();
@@ -345,6 +374,19 @@ const Game = {
       });
       UI.setRaceHud(true, race.entries.length);
       this._startRecording();
+      if (P.career) {
+        // Karriere: Kontakte mit dem Spieler protokollieren – Schuld hat, wer von hinten kommt
+        this.careerLog = this.careerLog || { contacts: [], passes: [], pole: false };
+        this.careerLog.contacts = []; this.careerLog.passes = [];
+        const lastHit = new Map();
+        race.onContact = (a, b, sp) => {
+          if (!(a.player || b.player) || race.state !== 'race') return;
+          const me = a.player ? a : b, o = a.player ? b : a, t = race.time;
+          if (t - (lastHit.get(o) || -9) < 1.5) return; lastHit.set(o, t);
+          const d = me.distance - o.distance, fault = d < -1.0 ? 'player' : d > 1.0 ? 'other' : 'none';
+          this.careerLog.contacts.push({ name: o.name, sp, fault });
+        };
+      }
       this._go(`${track.name} · ${R.laps} ${R.laps === 1 ? 'Runde' : 'Runden'}`);
       setTimeout(() => { if (this.race === race && race.state !== 'race') UI.hudMsg('Startaufstellung – Gas zum Vorbereiten, das Auto wird gehalten, bis die Ampel erlischt', 3600); }, 1200);
     } catch (err) { this._fail(err); }
@@ -498,7 +540,10 @@ const Game = {
       const was = prev.get(e);
       if (was != null && i < was && !e.pitting && !e.retired) {
         const passed = order[i + 1];
-        if (passed && prev.get(passed) === i && !passed.pitting && !passed.retired && Math.abs(e.distance - passed.distance) < 40) R.mark('pass', e.idx, `${e.player ? 'Du' : e.name} überholt ${passed.player ? 'dich' : passed.name}`);
+        if (passed && prev.get(passed) === i && !passed.pitting && !passed.retired && Math.abs(e.distance - passed.distance) < 40) {
+          R.mark('pass', e.idx, `${e.player ? 'Du' : e.name} überholt ${passed.player ? 'dich' : passed.name}`);
+          if (this.careerLog && (e.player || passed.player)) this.careerLog.passes.push({ by: e.name, on: passed.name });
+        }
       }
     });
     this._recOrder = new Map(order.map((e, i) => [e, i]));

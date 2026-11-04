@@ -80,7 +80,7 @@ class QualiSession extends PracticeSession {
     const trackGrip = strength > 1 ? 1 + (strength - 1) * 0.6 : 1;
     this.ai = field.filter(e => !e.player).map(e => {
       const prof = makeAIProfile(e.driver, strength, rng);
-      const best = estimateAILap(track, line, prof, { water, trackGrip, rng });
+      const best = estimateAILap(track, line, prof, { water, trackGrip: trackGrip * (e.trackGrip || 1), rng });
       const first = best * (1 + 0.004 + rng() * 0.012);
       // Zeitpunkte als Anteil der Sitzung: erster Versuch früh, Bestzeit gegen Ende
       return { e, prof, best, attempts: [{ at: 0.18 + rng() * 0.3, time: first }, { at: 0.62 + rng() * 0.34, time: best }], shown: Infinity };
@@ -129,7 +129,7 @@ class QualiSession extends PracticeSession {
 /** Ohne gefahrenes Qualifying (Meisterschaft mit Qualifying aus): geschätzte Zeiten + Spieler nach Einstellung */
 function simulatedGrid(track, line, field, { strength = 1, water = 0, rng = Math.random, playerGrid = 'middle' } = {}) {
   const trackGrip = strength > 1 ? 1 + (strength - 1) * 0.6 : 1;
-  const ai = field.filter(e => !e.player).map(e => { const prof = makeAIProfile(e.driver, strength, rng); return Object.assign({}, e, { profile: prof, qTime: estimateAILap(track, line, prof, { water, trackGrip, rng }) }); });
+  const ai = field.filter(e => !e.player).map(e => { const prof = makeAIProfile(e.driver, strength, rng); return Object.assign({}, e, { profile: prof, qTime: estimateAILap(track, line, prof, { water, trackGrip: trackGrip * (e.trackGrip || 1), rng }) }); });
   ai.sort((a, b) => a.qTime - b.qTime);
   const pl = field.find(e => e.player);
   if (pl) { const at = playerGrid === 'pole' ? 0 : playerGrid === 'back' ? ai.length : Math.floor(ai.length / 2); ai.splice(at, 0, Object.assign({}, pl)); }

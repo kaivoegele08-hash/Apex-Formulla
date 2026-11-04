@@ -183,7 +183,8 @@ class AIDriver {
     if (lead) {
       const o = lead.vehicle, closing = v.vLong - o.vLong;
       const faster = lead.ai ? (this.speedProf.pred[j] > lead.ai.speedProf.pred[o.trackIdx] * 0.995 || closing > 1.5) : (closing > 0.4 || leadDs < 16);
-      const aggr = clamp(P.aggression + (lead.player ? 0.25 : 0), 0, 1);
+      // Gegen den Spieler: Freunde greifen fairer an, Rivalen härter (Karriere-Beziehung relPlayer −1…1)
+      const aggr = clamp(P.aggression + (lead.player ? 0.25 - 0.3 * (this.relPlayer || 0) : 0), 0, 1);
       // Kurve voraus? Dann nur weiter angreifen, wenn schon neben dem Vordermann
       let kAhead = 0; for (let q = 4; q < 20 + v.vLong * 0.5; q += 4) kAhead = Math.max(kAhead, Math.abs(line.K[(j + q) % N]));
       if (this.passSide && kAhead > 0.0075 && leadDs > 4.5) { this.passSide = 0; this.passCool = 1.2; }
@@ -228,7 +229,9 @@ class AIDriver {
       const cv = chaser.vehicle, dlC = cv.lateral - v.lateral;
       // nur wenn der Angreifer noch nicht innen liegt und genug Abstand ist
       if (brakeZone && cornerSoon && chaserDs < -8 && dlC * inside < 0.8 && (this.defendSide === 0 || ((j - this.defendJ + N) % N) > 90)) { this.defendSide = inside; this.defendJ = j; }
-      if (AI_TUNE.door && !cornerSoon && !this.doorUsed && chaserDs < -10 && chaserDs > -20 && Math.abs(dlC) > 1.8 && Math.abs(dlC) < 3.5) { this.doorLat = v.lateral + Math.sign(dlC) * 1.2; this.doorUsed = true; this.doorT = 2.0; }
+      const rp = chaser.player ? (this.relPlayer || 0) : 0;
+      if (rp < -0.35 && this.doorUsed && this.doorT <= 0 && chaserDs > -14) this.doorUsed = false;   // Rivalen machen die Tür auch zweimal zu
+      if (AI_TUNE.door && rp < 0.35 && !cornerSoon && !this.doorUsed && chaserDs < -10 && chaserDs > -20 && Math.abs(dlC) > 1.8 && Math.abs(dlC) < 3.5) { this.doorLat = v.lateral + Math.sign(dlC) * 1.2; this.doorUsed = true; this.doorT = 2.0; }
     }
     if (!chaser || chaserDs < -45) this.doorUsed = false;
     if (this.defendSide && along) this.defendSide = 0;

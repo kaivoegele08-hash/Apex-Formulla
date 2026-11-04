@@ -28,6 +28,10 @@ SPIELEN
   (1990 bis 2026) – jeweils eigenes Auto, Fahrverhalten, Motorklang und
   Fahrerfeld. 1990–2010 ohne ERS/DRS, 2014–2022 mit DRS (öffnet nur bei
   < 1 s Abstand am Erkennungspunkt), 2026 mit aktiver Aero + Überholmodus.
+  „Karriere“: eigener Fahrer über mehrere Saisons. Verträge haben Bedingungen,
+  Angebote hängen von Ergebnissen, Ruf und Teamstimmung ab. Jeder KI-Fahrer hat
+  eine Beziehung zu dir (Kontakte, faire Duelle, Social-Media-Beiträge) –
+  Rivalen verteidigen härter, Freunde fahren fairer.
   Mods: Ordner „mods“ neben der HTML-Datei – eigene Strecken, Teams, Fahrer
   und Autos. Anleitung: mods/README.txt, KI-Prompts: mods/vorlagen.
   Siegerehrung nach dem Rennen (in der Rennvorbereitung abschaltbar).
