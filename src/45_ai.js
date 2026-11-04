@@ -321,8 +321,9 @@ class AIDriver {
   _damageCheck() {
     const H = this.v.health;
     // Aero-Schaden, Mischung und Reifenverschleiß bestimmen das Tempoprofil
-    const W = this.v.wheels, tyreF = (COMPOUNDS[this.v.compound].mu / 1.84) * (W.reduce((a, w) => a + w.tyre.wearFactor() * Math.min(1, w.tyre.gripT + 0.015), 0) / 4);
-    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * tyreF * (1 - this.caution) * 200) / 200;
+    const wv = this.v.water || 0, cpd = COMPOUNDS[this.v.compound], wetF = 1 - cpd.wetLoss * wv - cpd.dryPenalty * (1 - wv);
+    const W = this.v.wheels, tyreF = wetF * (cpd.mu / 1.84) * (W.reduce((a, w) => a + w.tyre.wearFactor() * Math.min(1, w.tyre.gripT + 0.015), 0) / 4);
+    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * tyreF * (1 - this.caution) * (1 - 0.06 * wv) * 200) / 200;
     if (f !== this.dmgF) { this.dmgF = f; this.speedProf = this.line.profile(this.prof.skill * f * (this.v.trackGrip || 1)); }
   }
   /**
@@ -349,6 +350,17 @@ class AIDriver {
       if (r < wallOutR) return fast;
       return lerp(fast, P.sg * (T.HW[j] - 1.3), smoothstep(wallOutR, P.len, r));
     };
+    // festgefahren (Unfall, Blockade)? In der Gasse zurück auf die schnelle Spur, davor Stopp abbrechen
+    pt.stuckT = pt.phase !== 'service' && v.speed < 1 ? (pt.stuckT || 0) + h : 0;
+    if (pt.stuckT > 4) {
+      pt.stuckT = 0;
+      const tyres = v.wheels.map(w => w.tyre), soc = v.soc;
+      if (v.inPitLane && rel >= 0) {
+        v.placeOnTrack(T, s + 3, P.sg * (T.BD[P.s][v.trackIdx] + 4)); v.wheels.forEach((w, i) => { w.tyre = tyres[i]; }); v.soc = soc; v.gear = 1;
+        v.inPitLane = true; if (pt.phase === 'lane' && relBox - rel < 15) { pt.phase = 'service'; pt.t = pt.serviceTime; }
+      } else { this.pit = null; v.pitAuto = false; v.pitLimiter = false; this.needsReset = true; if (pt.onAbort) pt.onAbort(); }
+      return;
+    }
     // Phasenwechsel
     if (pt.phase === 'approach' && rel >= 0) pt.phase = 'entry';
     if (pt.phase === 'entry' && rel >= wallInR - 15) {

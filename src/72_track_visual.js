@@ -25,10 +25,17 @@ class GeoBuilder {
 }
 
 class TrackVisual {
+  /** Nasse Fahrbahn: dunkler, glatter, stärker spiegelnd */
+  setWet(w) {
+    const q = Math.round(w * 40) / 40; if (q === this.wet) return; this.wet = q;
+    for (const b of this.wetBase) { b.m.roughness = lerp(b.r, Math.min(b.r, 0.5), q); b.m.color.copy(b.c).multiplyScalar(1 - 0.5 * q); b.m.envMapIntensity = 1 + 0.35 * q; }
+  }
   constructor(track, quality) {
     this.track = track; this.q = quality;
     this.group = new THREE.Group(); this.group.name = 'track';
     this.mats = this._materials();
+    this.wetBase = ['road', 'line', 'kerb1', 'kerb2', 'saus', 'runoff', 'pit', 'paint', 'checker'].map(k => ({ m: this.mats[k], r: this.mats[k].roughness, c: this.mats[k].color.clone() }));
+    this.wet = -1;
     this.crowdSpots = [];
     this._surfaces();
     this._barriers();
@@ -435,6 +442,9 @@ class TrackVisual {
       this._building(b.kind, cx, y, cz, face);
       blocked.push({ x: cx, z: cz, r: b.kind === 'kurhaus' ? 70 : 25 });
     }
+    // Stadtkurs: Häuserzeilen direkt hinter den Mauern
+    if (sc.city) this._city(rng, blocked, lake);
+    this.blocked = blocked;
     // Bäume (Instancing)
     this._trees(rng, blocked, lake);
   }
@@ -516,6 +526,31 @@ class TrackVisual {
     for (const k in parts) if (parts[k].length) this._add(mergeGeometries(parts[k].map(g => g.index ? g.toNonIndexed() : g)), M[k], { name: 'bldg' + k, cast: true });
   }
 
+  /** Häuserblöcke entlang der Strecke (eine zusammengeführte Geometrie, Fassadentextur) */
+  _city(rng, blocked, lake) {
+    const T = this.track, N = T.N, geo = [], step = Math.round(26 / T.ds);
+    const free = (x, z, r) => {
+      if (blocked.some(b => (b.x - x) ** 2 + (b.z - z) ** 2 < (b.r + r) ** 2)) return false;
+      const ns = T.nearestSample(x, z, 4);          // kein Haus auf/neben einem anderen Streckenteil
+      return ns.dist > r + T.HW[ns.j] + 8;
+    };
+    for (let s = 0; s < 2; s++) {
+      const sg = s ? 1 : -1;
+      for (let j = 0; j < N; j += step) {
+        if (T.pit && T.pit.inPit[j] && s === T.pit.s) continue;
+        const w = 18 + rng() * 10, d = 14 + rng() * 10, hgt = 9 + rng() * 22;
+        const off = T.BD[s][j] + 4 + d / 2;
+        const cx = T.X[j] + T.RX[j] * sg * off, cz = T.Z[j] + T.RZ[j] * sg * off;
+        if (!free(cx, cz, Math.max(w, d) * 0.55)) continue;
+        const g = new THREE.BoxGeometry(w, hgt, d);
+        const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / 16, uv.getY(i) * hgt / 12);
+        g.translate(0, hgt / 2, 0); g.rotateY(Math.atan2(T.TX[j], T.TZ[j])); g.translate(cx, this.terrainH(cx, cz) - 0.3, cz);
+        geo.push(g.toNonIndexed());
+        blocked.push({ x: cx, z: cz, r: Math.max(w, d) * 0.6 });
+      }
+    }
+    if (geo.length) this._add(mergeGeometries(geo), this.mats.facade, { name: 'city', cast: true });
+  }
   _trees(rng, blocked, lake) {
     const T = this.track, b = T.bounds, margin = 520;
     const want = Math.round(((T.def.scenery && T.def.scenery.trees) || 1500) * (this.q.trees || 1));

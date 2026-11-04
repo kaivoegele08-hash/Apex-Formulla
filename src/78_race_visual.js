@@ -46,7 +46,7 @@ function setCarLod(vis, dist, shadows) {
 }
 
 /** TV-Kameras: hinter der Barriere, abwechselnd links/rechts, alle ≈ 170 m */
-function buildTvSpots(track) {
+function buildTvSpots(track, blocked = []) {
   const spots = [], T = track, step = 170;
   let side = 0;
   for (let s = 40; s < T.length; s += step) {
@@ -55,8 +55,11 @@ function buildTvSpots(track) {
     const k = T.KS[(j + 25) % T.N];
     side = Math.abs(k) > 0.003 ? (k > 0 ? 0 : 1) : 1 - side;
     const sg = side === 1 ? 1 : -1;
-    const off = sg * (Math.min(T.BD[side][j], T.HW[j] + 30) + 4);
-    const x = T.X[j] + T.RX[j] * off, z = T.Z[j] + T.RZ[j] * off;
+    let off = sg * (Math.min(T.BD[side][j], T.HW[j] + 30) + 4);
+    let x = T.X[j] + T.RX[j] * off, z = T.Z[j] + T.RZ[j] * off;
+    const inside = (x, z) => blocked.some(b => (b.x - x) ** 2 + (b.z - z) ** 2 < (b.r * 0.8) ** 2);
+    if (inside(x, z)) { side = 1 - side; const sg2 = side === 1 ? 1 : -1; off = sg2 * (Math.min(T.BD[side][j], T.HW[j] + 30) + 4); x = T.X[j] + T.RX[j] * off; z = T.Z[j] + T.RZ[j] * off; }
+    if (inside(x, z)) continue;
     spots.push({ s, x, y: T.Y[j] + 4.5 + Math.abs(k) * 300, z });
   }
   return spots;

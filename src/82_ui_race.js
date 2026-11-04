@@ -39,7 +39,7 @@ Object.assign(UI, {
     const lapsOpts = [3, 5, 10, 15, 20, Math.round(full / 2), full].filter((x, i, a) => a.indexOf(x) === i).sort((a, b) => a - b);
     const strength = slider('KI-Stärke', R.strength, 0.85, 1.10, 0.01, v => { R.strength = v; save(); }, v => Math.round(v * 100) + ' %' + (v > 1.0 ? ' (Legende – mehr Grip als möglich)' : v >= 0.98 ? ' (Profi)' : v >= 0.93 ? ' (Fortgeschritten)' : ' (Einsteiger)'));
     const est = h('p', { style: { fontSize: '12px', color: '#7d8898' } });
-    const lapT = track.id === 'falkenried' ? 92 : 84;
+    const lapT = refLapTime(track, Game.getLine(track.id));
     const updEst = () => { est.textContent = `≈ ${Math.round(R.laps * (lapT + 2) / 60)} min Renndauer · KI-Rundenzeit bei 100 % ≈ ${fmtTime(lapT)}`; };
     updEst();
     return h('section.screen.solid',
@@ -59,6 +59,9 @@ Object.assign(UI, {
             fieldRow('Startaufstellung', toggle([{ value: 'random', label: 'Zufällig' }, { value: 'rating', label: 'Nach Stärke' }], R.grid, v => { R.grid = v; save(); })),
             fieldRow('Dein Startplatz', toggle([{ value: 'pole', label: 'Pole' }, { value: 'middle', label: 'Mitte' }, { value: 'back', label: 'Hinten' }], R.playerGrid, v => { R.playerGrid = v; save(); })),
           ),
+          h('div.card', h('h3', 'Qualifying'),
+            toggle([{ value: 0, label: 'Aus' }, ...QUALI_DURATIONS.map(m => ({ value: m, label: `${m} min` }))], R.quali ? (R.qualiMin || 10) : 0, v => { R.quali = v > 0; if (v) R.qualiMin = v; save(); }),
+            h('p', { style: { fontSize: '12px' } }, 'Mit Qualifying fährst du zuerst gegen die Uhr; deine beste gültige Runde bestimmt deinen Startplatz (Startaufstellung und „Dein Startplatz“ gelten dann nicht). Läuft die Zeit ab, darfst du die begonnene Runde noch beenden.')),
           h('div.card', h('h3', 'Team / Lackierung'), chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), S.game.team, v => { S.game.team = v; save(); Game.refreshGarageCar(); })),
         ),
         h('div.col', { style: { flex: '0 1 420px' } },
@@ -69,7 +72,11 @@ Object.assign(UI, {
             h('p', { style: { fontSize: '12px' } }, 'Pflichtstopp: zwei verschiedene Trockenmischungen im Rennen, sonst 30 s Strafe. Box anfordern mit Taste B (am Lenkrad belegbar) – der Autopilot fährt durch die Gasse.'),
             h('p', { style: { fontSize: '12px' } }, 'Track Limits: alle vier Räder jenseits der weißen Linie = Verwarnung; ab der 4. Verwarnung 5 s Zeitstrafe. Start: das Auto wird gehalten, bis die Ampel erlischt.'),
           ),
-          h('div.card', h('h3', 'Startreifen'), chips(COMPOUND_ORDER.slice(0, 3).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; save(); })),
+          h('div.card', h('h3', 'Wetter & Tageszeit'),
+            chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), S.game.weather || 'dry', v => { S.game.weather = v; save(); }),
+            h('div', { style: { height: '8px' } }),
+            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; save(); })),
+          h('div.card', h('h3', 'Startreifen'), h('p', { style: { fontSize: '12px' } }, 'Bei nasser Strecke werden automatisch Intermediate- bzw. Regenreifen aufgezogen.'), chips(COMPOUND_ORDER.slice(0, 3).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; save(); })),
           h('div.card', h('h3', 'Fahrhilfen'),
             fieldRow('Traktionskontrolle', toggle([{ value: 0, label: 'Aus' }, { value: 1, label: 'Mittel' }, { value: 2, label: 'Voll' }], S.aids.tc, v => { S.aids.tc = v; save(); })),
             fieldRow('ABS', toggle([{ value: false, label: 'Aus' }, { value: true, label: 'An' }], S.aids.abs, v => { S.aids.abs = v; save(); })),
@@ -77,7 +84,7 @@ Object.assign(UI, {
             fieldRow('Ideallinie', toggle([{ value: 'off', label: 'Aus' }, { value: 'brake', label: 'Nur Bremszonen' }, { value: 'full', label: 'Voll' }], S.aids.idealLine || 'off', v => { S.aids.idealLine = v; save(); })),
           ),
           h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.filter(m => m !== 'tv').map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; save(); })),
-          h('div.actions', btn('Rennen starten', () => Game.startRace(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
+          h('div.actions', btn(R.quali ? 'Qualifying starten' : 'Rennen starten', () => Game.startQuickRace(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
         ),
       ),
     );
@@ -221,7 +228,86 @@ Object.assign(UI, {
       h('header', h('span.crumb', 'Rennergebnis'), h('h1', title), h('span', { style: { color: '#7d8898' } }, `${race.track.name} · ${race.laps} ${race.laps === 1 ? 'Runde' : 'Runden'}`)),
       race.fastest.entry ? h('div.hint', 'Schnellste Runde: ', h('b', `${race.fastest.entry.name} ${fmtTime(race.fastest.time)}`), ` (Runde ${race.fastest.lap})`) : null,
       h('div.scroll', { style: { flex: '1' } }, tbl),
-      h('div.actions', btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+      Game.seasonRound && Game.season
+        ? h('div.actions', btn('Telemetrie', () => this.show('telemetry')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))
+        : h('div.actions', btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+    );
+  },
+
+  // ---------------------------------------------------------------------------
+  //  Qualifying-Ergebnis
+  // ---------------------------------------------------------------------------
+  scr_qualiResults() {
+    const q = Game.session;
+    if (!q || q.kind !== 'quali') return h('section.screen.solid', h('div.actions', btn('Hauptmenü', () => Game.toMenu(), 'primary')));
+    const st = q.standings(), pole = st[0].time;
+    const tbl = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Fahrer'), h('th', 'Team'), h('th', 'Zeit'), h('th', 'Abstand')));
+    st.forEach((r, i) => {
+      const team = TEAMS.find(t => t.id === r.team);
+      tbl.append(h('tr' + (r.player ? '.me' : ''), h('td.num', String(i + 1)), h('td', h('i.sw', { style: { background: team.colors[0] } }), `${r.e.number} · ${r.name}`), h('td', team.name),
+        h('td.num', { style: i === 0 ? { color: '#b65cff', fontWeight: 800 } : {} }, isFinite(r.time) ? fmtTime(r.time) : 'keine Zeit'), h('td.num', i && isFinite(r.time) ? '+' + (r.time - pole).toFixed(3).replace('.', ',') : '')));
+    });
+    const me = st.findIndex(r => r.player) + 1;
+    const P = Game.raceParams();
+    return h('section.screen.solid',
+      h('header', h('span.crumb', Game.seasonRound ? `Meisterschaft · Runde ${Game.season.round + 1}` : 'Qualifying'), h('h1', isFinite(q.playerBest) ? `Startplatz ${me}` : `Keine gültige Runde – Startplatz ${me}`), h('span', { style: { color: '#7d8898' } }, `${q.track.name} · Pole: ${st[0].name} ${fmtTime(pole)}`)),
+      h('div.scroll', { style: { flex: '1' } }, tbl),
+      h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+    );
+  },
+
+  // ---------------------------------------------------------------------------
+  //  Meisterschaft: neue Saison, Kalender, Fahrer- und Teamwertung
+  // ---------------------------------------------------------------------------
+  scr_season(opts = {}) {
+    const S = Game.season;
+    const teamOf = (id) => TEAMS.find(t => t.id === id) || TEAMS[0];
+    if (!S) {
+      const o = this._seasonOpts || (this._seasonOpts = { distance: 'short', quali: true, qualiMin: 10, weather: 'random' });
+      return h('section.screen.solid',
+        h('header', h('span.crumb', 'Meisterschaft'), h('h1', 'Neue Saison')),
+        h('div.row', { style: { alignItems: 'flex-start' } },
+          h('div.col', { style: { flex: '1 1 520px', maxWidth: '720px' } },
+            h('div.card', h('h3', 'Kalender'), h('ol', TRACK_ORDER.map(id => h('li', `${TRACKS[id].name} – ${fmtNum(Game.getTrackModel(id).length / 1000, 2)} km`))),
+              h('p', { style: { fontSize: '12px' } }, `Punkte: ${POINTS.join('-')} für die Plätze 1–10, +1 für die schnellste Runde (wenn in den Top 10). Volles Feld mit 20 Autos, Fahrer- und Teamwertung. Der Spielstand wird automatisch gespeichert.`)),
+            h('div.card', h('h3', 'Renndistanz'), toggle(Object.entries(SEASON_DISTANCES).map(([value, d]) => ({ value, label: d.name })), o.distance, v => { o.distance = v; })),
+            h('div.card', h('h3', 'Qualifying'), toggle([{ value: 0, label: 'Aus (Startplatz Mitte)' }, ...QUALI_DURATIONS.map(m => ({ value: m, label: `${m} min` }))], o.quali ? o.qualiMin : 0, v => { o.quali = v > 0; if (v) o.qualiMin = v; })),
+            h('div.card', h('h3', 'Wetter'), chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), o.weather, v => { o.weather = v; }), h('p', { style: { fontSize: '12px' } }, '„Zufällig“ würfelt das Wetter für jedes Wochenende neu.')),
+          ),
+          h('div.col', { style: { flex: '0 1 420px' } },
+            h('div.card', h('h3', 'Team / Lackierung'), chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), Game.settings.game.team, v => { Game.settings.game.team = v; Game.saveSettings(); Game.refreshGarageCar(); })),
+            h('div.card', h('h3', 'KI-Stärke'), h('p', `${Math.round(Game.settings.race.strength * 100)} % – einstellbar unter „Schnelles Rennen“.`)),
+            h('div.actions', btn('Saison starten', () => { Game.newSeason(o); this.show('season', { noHistory: true }); }, 'primary', '▶'), btn('Zurück', () => this.back(), 'ghost')),
+          ),
+        ),
+      );
+    }
+    const done = Season.done(S), table = Season.driverTable(S), teams = Season.teamTable(S);
+    const cal = h('table.res', h('tr', h('th', 'Rd'), h('th', 'Strecke'), h('th', 'Sieger'), h('th', 'Du')));
+    S.tracks.forEach((id, i) => {
+      const r = S.results[i], win = r && r.order[0], mine = r && r.order.find(x => x.player);
+      cal.append(h('tr' + (i === S.round && !done ? '.me' : ''), h('td.num', String(i + 1)), h('td', TRACKS[id].name), h('td', win ? `${win.name}${win.player ? ' (du)' : ''}` : i === S.round ? 'nächstes Rennen' : ''), h('td.num', mine ? (mine.retired ? 'AUS' : `P${mine.pos} · ${mine.pts} Pkt`) : '')));
+    });
+    const dt = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Fahrer'), h('th', 'Team'), h('th', 'Siege'), h('th', 'Punkte')));
+    table.forEach((d, i) => dt.append(h('tr' + (d.player ? '.me' : ''), h('td.num', String(i + 1)), h('td', h('i.sw', { style: { background: teamOf(d.team).colors[0] } }), d.name), h('td', teamOf(d.team).name), h('td.num', String(d.wins)), h('td.num', String(d.pts)))));
+    const tt = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Team'), h('th', 'Punkte')));
+    teams.forEach((t, i) => tt.append(h('tr' + (t.id === S.team ? '.me' : ''), h('td.num', String(i + 1)), h('td', h('i.sw', { style: { background: teamOf(t.id).colors[0] } }), teamOf(t.id).name), h('td.num', String(t.pts)))));
+    const myPos = table.findIndex(d => d.player) + 1;
+    const last = S.results[S.results.length - 1], lastMine = last && last.order.find(x => x.player);
+    const title = done ? (myPos === 1 ? 'Du bist Weltmeister!' : `Saison beendet – du wirst ${myPos}.`) : `Runde ${S.round + 1} von ${S.tracks.length}: ${TRACKS[S.tracks[S.round]].name}`;
+    const nextTrack = !done && Game.getTrackModel(S.tracks[S.round]);
+    return h('section.screen.solid',
+      h('header', h('span.crumb', 'Meisterschaft'), h('h1', title), h('span', { style: { color: '#7d8898' } }, `${SEASON_DISTANCES[S.distance].name} · Qualifying ${S.quali ? S.qualiMin + ' min' : 'aus'} · Wetter ${WEATHER_TYPES[S.weather] ? WEATHER_TYPES[S.weather].name : S.weather}`)),
+      opts.justScored && lastMine ? h('div.hint', `${TRACKS[last.track].name}: ${lastMine.retired ? 'ausgeschieden' : `Platz ${lastMine.pos}`} – ${lastMine.pts} ${lastMine.pts === 1 ? 'Punkt' : 'Punkte'}${lastMine.fl ? ' (inkl. schnellste Runde)' : ''}. Du bist ${myPos}. der Fahrerwertung.`) : null,
+      h('div.row.scroll', { style: { alignItems: 'flex-start', flex: '1' } },
+        h('div.col', { style: { flex: '1 1 460px' } }, h('div.card', h('h3', 'Fahrerwertung'), dt)),
+        h('div.col', { style: { flex: '0 1 400px' } }, h('div.card', h('h3', 'Kalender'), cal), h('div.card', h('h3', 'Teamwertung'), tt)),
+      ),
+      h('div.actions',
+        done ? null : btn(`${S.quali ? 'Qualifying' : 'Rennen'} starten · ${nextTrack.name} (${Season.lapsFor(S, nextTrack)} Runden)`, () => Game.startSeasonRound(), 'primary', '▶'),
+        done ? null : btn('Fahrzeug-Setup', () => { Game.settings.game.track = S.tracks[S.round]; this.show('setup'); }),
+        btn(done ? 'Neue Saison' : 'Saison abbrechen', () => done ? (Game.endSeason(), this.show('season', { noHistory: true })) : this.confirm('Saison wirklich abbrechen? Der Spielstand geht verloren.', () => { Game.endSeason(); this.show('season', { noHistory: true }); }), 'ghost'),
+        btn('Hauptmenü', () => this.show('main', { noHistory: true }), 'ghost')),
     );
   },
 
@@ -241,11 +327,11 @@ Object.assign(UI, {
     clearTimeout(this._flagTimer);
     if (f === 'green') this._flagTimer = setTimeout(() => el.classList.add('hidden'), 2500);
   },
-  setRaceHud(on, total = 20) {
+  setRaceHud(on, total = 20, kind = 'race') {
     $('hudFlag').classList.add('hidden'); $('hudBox').classList.add('hidden');
     $('hudTower').classList.toggle('hidden', !on);
-    $('hudGaps').classList.toggle('hidden', !on);
-    $('hudPos').classList.toggle('hidden', !on);
+    $('hudGaps').classList.toggle('hidden', !on || kind === 'quali');
+    $('hudPos').classList.toggle('hidden', !on || kind === 'quali');
     $('hudLights').classList.add('hidden');
     if (on) $('hudPosTot').textContent = '/' + total;
     this.hudCache = {};
@@ -264,6 +350,29 @@ Object.assign(UI, {
       const cls = states[k] || (k === cur ? 'cur' : '');
       const el = $('sec' + k); if (el.className !== cls) el.className = cls;
     }
+  },
+  /** Qualifying-HUD: Restzeit, vorläufige Position, Zeitenliste */
+  updateQualiHud(q) {
+    const st = q.standings(), mi = st.findIndex(r => r.player);
+    this._txt('hudPosNum', String(mi + 1));
+    const pole = st[0].time;
+    let html = `<div class="hd">Qualifying · ${q.phase === 'running' ? fmtClock(q.remaining) : q.phase === 'last' ? 'letzte Runde' : 'beendet'}</div>`;
+    const rowH = 16, fit = Math.max(6, Math.floor((window.innerHeight - 190 - 250) / rowH));
+    let show = st.map((_, i) => i);
+    if (st.length > fit) { const top = 3, around = fit - top - 1, from = clamp(mi - Math.floor(around / 2), top, st.length - around); show = [...Array(top).keys(), ...Array.from({ length: around }, (_, k) => from + k)]; }
+    let lastI = -1;
+    show.forEach((i) => {
+      const r = st[i];
+      if (i !== lastI + 1) html += '<div class="tr" style="opacity:.5"><b></b><i></i><span>…</span><em></em></div>';
+      lastI = i;
+      const team = TEAMS.find(t => t.id === r.team);
+      const t = !isFinite(r.time) ? '' : i === 0 ? fmtTime(r.time) : '+' + (r.time - pole).toFixed(3).replace('.', ',');
+      html += `<div class="tr${r.player ? ' me' : ''}"><b>${i + 1}</b><i style="background:${team.colors[0]}"></i><span>${r.player ? 'DU' : shortName(r.name)}</span><em>${t}</em></div>`;
+    });
+    if (this.hudCache.tower !== html) { this.hudCache.tower = html; $('hudTower').innerHTML = html; }
+    const bt = q.phase === 'running' ? `QUALIFYING · noch ${fmtClock(q.remaining)}${isFinite(q.playerBest) ? ` · Bestzeit ${fmtTime(q.playerBest)}` : ''}` : q.phase === 'last' ? 'Zeit abgelaufen – letzte Runde' : '';
+    $('hudBox').classList.toggle('hidden', !bt);
+    if (this.hudCache.box !== bt) { this.hudCache.box = bt; $('hudBox').innerHTML = bt; }
   },
   updateRaceHud(race) {
     const me = race.player; if (!me) return;

@@ -250,6 +250,7 @@ class RaceSession {
     this.slipT = 0; this.stratT = 0;
     this.mandatory = opts.mandatory ?? this.laps >= 10;          // Pflichtstopp: zwei verschiedene Trockenmischungen
     this.safetyCarOn = opts.safetyCar !== false;
+    this.weather = opts.weather || new Weather('dry');
     this.sc = null; this.zones = []; this.playerFlag = 'green'; this.flagT = 0; this.prevAhead = new Map();
     const T = this.track, L = T.length;
     this.entries = opts.entries.map((e, idx) => {
@@ -326,7 +327,7 @@ class RaceSession {
       const done = en.timing.laps.length;
       if (!en.finished && (done >= this.laps || this.leaderDone)) {
         en.finished = true; en.finishTime = en.timing.time; this.finishOrder.push(en);
-        if (this.mandatory && en.used.size < 2) { en.penalty += 30; this.msg(`${en.name}: 30 s Strafe – Pflichtstopp nicht erfüllt`, en, 'pen'); }
+        if (this.mandatory && !this.weather.wetEver && en.used.size < 2) { en.penalty += 30; this.msg(`${en.name}: 30 s Strafe – Pflichtstopp nicht erfüllt`, en, 'pen'); }
         if (!this.leaderDone) { this.leaderDone = true; this.flag = 'chequered'; this.msg(`${en.name} gewinnt das Rennen!`, en, 'win'); }
         Events.emit('race:finished', en);
       }
@@ -365,6 +366,10 @@ class RaceSession {
         for (const e of this.entries) { e.timing.startRace(e.timing.time, e.vehicle.trackS); if (e.ai) e.ai.launch(this.time); }
       }
     }
+    this.weather.step(h);
+    const water = this.weather.water;
+    for (const e of this.entries) e.vehicle.water = water;
+    if (this.sc && this.sc.car) this.sc.car.vehicle.water = water;
     const ctx = { cars: this.sc && this.sc.car ? this.entries.concat([this.sc.car]) : this.entries, state: aiState, time: this.time, me: null, cap: 0 };
     if (this.sc && this.sc.car) this._stepSafetyCar(h);
     for (const e of this.entries) {
@@ -458,6 +463,13 @@ class RaceSession {
   }
   _service(e, plan, repair, t, pending) {
     const v = e.vehicle;
+    // KI: Reifenwahl beim Stopp an die aktuelle Nässe anpassen (der Plan kann Runden alt sein)
+    if (!e.player) {
+      const w = this.weather.water, best = Weather.bestFor(w), wetC = plan.compound === 'inter' || plan.compound === 'wet';
+      if (best && !wetC) plan.compound = best;
+      else if (best && wetC && plan.compound !== best) plan.compound = best;
+      else if (!best && wetC) plan.compound = (this.laps - e.timing.laps.length) <= 8 ? 'soft' : 'medium';
+    }
     v.setCompound(plan.compound, 80);
     if (repair) { const toe = v.health.toe; Damage.repair(v); toe.fill(0); }
     e.used.add(plan.compound); e.pitStops++; e.stintStart = e.distance; e.penaltyServed += pending;
@@ -475,10 +487,19 @@ class RaceSession {
     const stint = (e.distance - e.stintStart) / L, cur = v.compound;
     const rateM = stint > 1 ? wear / stint / COMPOUNDS[cur].wear : 0.042;     // Verschleiß je Runde, auf „Mittel“ normiert
     const life = (c) => 0.66 / (rateM * COMPOUNDS[c].wear);                      // Runden bis zur Verschleißgrenze
-    const mustStop = this.mandatory && e.used.size < 2;
+    const mustStop = this.mandatory && !this.weather.wetEver && e.used.size < 2;
     const endWear = wear + rateM * COMPOUNDS[cur].wear * rem;
     let why = '';
-    if (wear > 0.66 && rem > 1) why = 'Reifen';
+    // Wetter: auf passende Reifen wechseln (Intermediate ab ≈ 42 % Nässe, Regenreifen ab ≈ 64 %)
+    const water = this.weather.water, best = Weather.bestFor(water), wetTyre = cur === 'inter' || cur === 'wet';
+    let wetPick = null;
+    if (!wetTyre && best && water > (best === 'wet' ? 0.6 : 0.44) && rem >= 1) wetPick = best;
+    else if (cur === 'inter' && water > 0.68 && rem > 2) wetPick = 'wet';
+    else if (cur === 'wet' && water < 0.55 && water > 0.4 && rem > 2) wetPick = 'inter';
+    if (wetPick) { if (!this.entries.some(o => o !== e && o.team === e.team && (o.pitting || o.pitPlan))) e.pitPlan = { compound: wetPick, repair: true, why: 'Regen' }; return; }
+    if (wetTyre && water < 0.33 && rem > 1) why = 'Abtrocknen';
+    else if (wetTyre) return;
+    else if (wear > 0.66 && rem > 1) why = 'Reifen';
     else if ((v.health.fw < 0.6 || v.health.rw < 0.55) && rem > 4) why = 'Schaden';
     else if (mustStop && rem <= 2) why = 'Pflichtstopp';
     else if (this.sc && this.sc.kind && rem > 3 && wear > 0.22 && (mustStop || endWear > 0.66)) why = 'Safety Car';

@@ -312,6 +312,9 @@ class FxVoices {
     this.crowdLfo = c.createOscillator(); this.crowdLfo.frequency.value = 0.17; this.crowdLfoG = c.createGain(); this.crowdLfoG.gain.value = 0;
     this.crowdLfo.connect(this.crowdLfoG); this.crowdLfoG.connect(this.crowd.g.gain); this.crowdLfo.start();
     this.birds = chain(noise(pinkBuf, 0.9), 'highpass', 3000, 0.5, this.ambGate);
+    // Regen (Rauschen) und Reifenzischen auf nasser Fahrbahn
+    this.rainN = chain(noise(noiseBuf, 0.8), 'highpass', 900, 0.5, this.ambGate);
+    this.hiss = chain(noise(noiseBuf, 1.1), 'bandpass', 3200, 0.8);
   }
   setActive(on) { const t = this.c.currentTime; this.gate.gain.setTargetAtTime(on ? 1 : 0, t, 0.08); this.ambGate.gain.setTargetAtTime(on ? 1 : 0, t, 0.3); }
   update(dt, car, inter, opts) {
@@ -359,7 +362,9 @@ class FxVoices {
     // Umgebung
     const crowd = opts.crowd || 0;
     this.crowd.g.gain.setTargetAtTime(0.03 + crowd * 0.12, t, 0.5); this.crowdLfoG.gain.setTargetAtTime(0.02 + crowd * 0.04, t, 0.5);
-    this.birds.g.gain.setTargetAtTime(0.004 * (1 - smoothstep(0, 40, spd)), t, 0.5);
+    this.birds.g.gain.setTargetAtTime(0.004 * (1 - smoothstep(0, 40, spd)) * (1 - (opts.rain || 0)), t, 0.5);
+    this.rainN.g.gain.setTargetAtTime((opts.rain || 0) * (0.06 + 0.05 * (1 - inter)), t, 0.4);
+    this.hiss.g.gain.setTargetAtTime((car.water || 0) * smoothstep(5, 60, spd) * 0.07, t, 0.1);
   }
 }
 

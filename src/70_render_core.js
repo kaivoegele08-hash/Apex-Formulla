@@ -262,6 +262,43 @@ const Tex = {
 // ---------------------------------------------------------------------------
 //  Partikel (Rauch, Funken, Staub) – Points mit eigenem Shader
 // ---------------------------------------------------------------------------
+/** Regen: Tropfen als kurze Striche in einem Kasten um die Kamera */
+class RainSystem {
+  constructor(max = 3000) {
+    this.max = max;
+    this.pos = new Float32Array(max * 6); this.vel = new Float32Array(max);
+    const g = new THREE.BufferGeometry();
+    this.attr = new THREE.BufferAttribute(this.pos, 3); this.attr.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.attr); g.setDrawRange(0, 0);
+    this.lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xb8c4d0, transparent: true, opacity: 0.38, depthWrite: false }));
+    this.lines.frustumCulled = false; this.lines.renderOrder = 6;
+    this.inited = false; this.R = 26; this.Hh = 18;
+  }
+  _spawn(i, cx, cy, cz, top) {
+    const R = this.R, x = cx + (Math.random() - 0.5) * 2 * R, z = cz + (Math.random() - 0.5) * 2 * R;
+    const y = top ? cy + this.Hh * (0.5 + Math.random() * 0.5) : cy + (Math.random() - 0.3) * this.Hh;
+    const p = this.pos, k = i * 6; p[k] = x; p[k + 1] = y; p[k + 2] = z; p[k + 3] = x; p[k + 4] = y - 0.55; p[k + 5] = z;
+    this.vel[i] = 9 + Math.random() * 3;
+  }
+  /** intensity 0…1, cam = Kamera, carVel = Fahrzeuggeschwindigkeit (Fahrtwind neigt die Tropfen) */
+  update(dt, intensity, cam, carVel) {
+    const n = Math.floor(this.max * clamp(intensity, 0, 1));
+    this.lines.visible = n > 0;
+    if (!n) { this.inited = false; return; }
+    const cx = cam.position.x, cy = cam.position.y, cz = cam.position.z, R = this.R, p = this.pos;
+    if (!this.inited) { for (let i = 0; i < this.max; i++) this._spawn(i, cx, cy, cz, false); this.inited = true; }
+    const wx = carVel ? -carVel.x * 0.06 : 0, wz = carVel ? -carVel.z * 0.06 : 0;
+    for (let i = 0; i < n; i++) {
+      const k = i * 6, vy = this.vel[i] * dt;
+      p[k] += wx * dt * 10; p[k + 2] += wz * dt * 10; p[k + 1] -= vy;
+      p[k + 3] = p[k] - wx * 0.05; p[k + 5] = p[k + 2] - wz * 0.05; p[k + 4] = p[k + 1] - 0.55;
+      if (p[k + 1] < cy - this.Hh * 0.5 || Math.abs(p[k] - cx) > R || Math.abs(p[k + 2] - cz) > R) this._spawn(i, cx, cy, cz, true);
+    }
+    this.lines.geometry.setDrawRange(0, n * 2);
+    this.attr.needsUpdate = true;
+  }
+}
+
 class ParticleSystem {
   constructor(max, { additive = false, texture, sizeScale = 1 } = {}) {
     this.max = max; this.n = 0;
@@ -418,6 +455,11 @@ const Render = {
     sun.shadow.bias = -0.00035; sun.shadow.normalBias = 0.035;
     scene.add(sun); scene.add(sun.target);
     scene.fog = new THREE.Fog(tod.fog, Math.min(400, this.quality.viewDist * 0.2), this.quality.viewDist * 0.95);
+    // Ausgangswerte für das Wetter (Bewölkung/Regen verändern Licht, Himmel und Nebel)
+    this.todBase = { tod, sun: tod.sun, hemi: tod.hemi, fog: new THREE.Color(tod.fog), near: scene.fog.near, far: scene.fog.far, turb: tod.turbidity, ray: tod.rayleigh, exp: this.renderer.toneMappingExposure };
+    this.wx = null;
+    this.rain = new RainSystem(Math.round(3200 * (this.quality.particles || 1)));
+    scene.add(this.rain.lines);
     // Partikel
     const dot = Tex.softDot();
     this.fx = {
@@ -439,6 +481,20 @@ const Render = {
     s.target.updateMatrixWorld();
   },
 
+  /** Wetter anwenden: cloud/rain 0…1 (nur bei Änderung) */
+  setWeather(cloud, rain) {
+    const B = this.todBase; if (!B || !this.scene) return;
+    const key = Math.round(cloud * 50) + '|' + Math.round(rain * 50);
+    if (this.wx === key) return; this.wx = key;
+    const grey = new THREE.Color(0x8d969f);
+    this.sun.intensity = B.sun * (1 - 0.78 * cloud);
+    this.hemi.intensity = B.hemi * (1 + 0.25 * cloud);
+    const u = this.sky.material.uniforms;
+    u.turbidity.value = lerp(B.turb, 20, cloud); u.rayleigh.value = lerp(B.ray, 0.4, cloud);
+    this.scene.fog.color.copy(B.fog).lerp(grey, cloud * 0.85);
+    this.scene.fog.near = lerp(B.near, 30, rain); this.scene.fog.far = lerp(B.far, Math.min(B.far, 520), rain);
+    this.renderer.toneMappingExposure = B.exp * (1 - 0.12 * cloud);
+  },
   updateParticles(dt) { if (this.fx) for (const k in this.fx) this.fx[k].update(dt); },
   clearParticles() { if (this.fx) for (const k in this.fx) this.fx[k].clear(); },
 
@@ -447,6 +503,8 @@ const Render = {
 
 const TIME_OF_DAY = {
   afternoon: { elevation: 34, azimuth: 205, turbidity: 5.5, rayleigh: 1.4, sun: 3.4, sunColor: 0xfff1de, hemi: 0.85, skyColor: 0xbcd4f0, groundColor: 0x5b6b45, fog: 0xb9c9d9 },
+  morning: { elevation: 20, azimuth: 115, turbidity: 4.0, rayleigh: 1.2, sun: 3.0, sunColor: 0xffe9cf, hemi: 0.78, skyColor: 0xc6dbf2, groundColor: 0x55663f, fog: 0xc8d4de },
+  dusk: { elevation: 3.5, azimuth: 262, turbidity: 9, rayleigh: 3.2, sun: 2.2, sunColor: 0xff9a55, hemi: 0.45, skyColor: 0xb59a8a, groundColor: 0x3c4230, fog: 0xb08f78 },
   evening: { elevation: 13, azimuth: 248, turbidity: 7.5, rayleigh: 2.4, sun: 3.0, sunColor: 0xffc78a, hemi: 0.68, skyColor: 0xd7c3a8, groundColor: 0x4f5a38, fog: 0xd6bf9f },
 };
 

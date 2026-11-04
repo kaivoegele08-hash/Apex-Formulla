@@ -5,7 +5,7 @@
 // ============================================================================
 
 const APP_NAME = 'Apex Formula';
-const APP_VERSION = '0.4.0 – Phase 4';
+const APP_VERSION = '0.5.0 – Phase 5';
 const PHYS_HZ = 360;                 // fester Physik-Takt
 const PHYS_DT = 1 / PHYS_HZ;
 const DEG = Math.PI / 180;
@@ -41,6 +41,7 @@ function fmtTime(t, showMs = true) {
   return showMs ? `${m}:${String(ss).padStart(2, '0')}.${String(ms).padStart(3, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
 }
 function fmtNum(x, d = 1) { return x.toFixed(d).replace('.', ','); }
+function fmtClock(t) { t = Math.max(0, Math.ceil(t)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; }
 
 /** Deterministischer Zufallsgenerator (mulberry32) – für reproduzierbare Szenerie */
 function makeRng(seed) {

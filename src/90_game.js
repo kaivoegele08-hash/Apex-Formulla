@@ -17,8 +17,8 @@ const DEFAULT_SETTINGS = {
     pad: { map: DEFAULT_PAD, deadzone: 0.08, linearity: 1.6, speedSteer: 0.32, triggerGamma: 1.0 },
     kbSteerRate: 2.6, kbSteerReturn: 4.5, kbSpeedSteer: 0.22, rumble: 0.8,
   },
-  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark' },
-  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full', safetyCar: true, mandatory: 'auto' },
+  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark', weather: 'dry', timeOfDay: 'track' },
+  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full', safetyCar: true, mandatory: 'auto', quali: false, qualiMin: 10 },
   ffb: { enabled: false, strength: 0.7, invert: false, damper: 0.15, road: 0.5, vibration: 0.6 },
 };
 
@@ -34,6 +34,7 @@ const Game = {
     msg('Initialisiere …');
     Save.init();
     this.settings = deepMerge(DEFAULT_SETTINGS, Save.get('settings', {}));
+    this.season = Save.get('season', null);
     Input.init(this.settings.input);
     FFB.init(this.settings.ffb);
     Events.on('ffb:changed', () => this.saveSettings());
@@ -57,6 +58,9 @@ const Game = {
     });
     Events.on('lap:done', (t, valid) => { UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
     Events.on('lap:best', (t) => UI.hudMsg(`Neue Bestzeit ${fmtTime(t)}`, 3000));
+    Events.on('quali:best', (t, pos) => { UI.hudMsg(`Qualifying: ${fmtTime(t)} – vorläufig P${pos}`, 3200); AudioSys.radio(); });
+    Events.on('quali:last', () => { UI.hudMsg('Zeit abgelaufen – laufende Runde zu Ende fahren', 3200); AudioSys.radio(); });
+    Events.on('quali:end', () => { UI.hudMsg('Qualifying beendet', 2000); this._qualiDone(); });
     Events.on('lap:limits', (n) => { UI.hudMsg('Track Limits – Runde ungültig', 1800); AudioSys.beep(520, 0.1, 0.2); });
     this._raceEvents();
     if (Input.repairNotes.length) setTimeout(() => UI.toast('Fehlerhafte Knopfbelegung entfernt (Lenk-/Pedalachse als Knopf): ' + Input.repairNotes.join(' · ') + ' – bitte bei Bedarf neu belegen.', 9000), 800);
@@ -71,6 +75,27 @@ const Game = {
   },
 
   saveSettings() { Save.set('settings', this.settings); },
+  // ---------------------------------------------------------------------------
+  //  Meisterschaft
+  // ---------------------------------------------------------------------------
+  newSeason(opts) {
+    const G = this.settings.game;
+    this.season = Season.create(Object.assign({ team: G.team, playerName: G.playerName || 'Du', number: G.number, strength: this.settings.race.strength }, opts));
+    Save.set('season', this.season);
+  },
+  endSeason() { this.season = null; this.seasonRound = false; Save.set('season', null); },
+  startSeasonRound() { if (!this.season || Season.done(this.season)) return; this.seasonRound = true; this.startEvent(); },
+  startQuickRace() { this.seasonRound = false; this.startEvent(); },
+  /** Rennergebnis in die Saisonwertung übernehmen (einmal je Rennen) */
+  scoreSeasonRace() {
+    const race = this.race, S = this.season;
+    if (!race || !S || !this.seasonRound || race.seasonScored) return null;
+    race.seasonScored = true;
+    const order = Season.award(S, race.track.id, race.classification(), race.fastest);
+    Save.set('season', S);
+    this.pendingGrid = null;
+    return order;
+  },
   getTrackModel(id) { if (!this.trackModels[id]) this.trackModels[id] = new TrackModel(TRACKS[id]); return this.trackModels[id]; },
   get team() { return TEAMS.find(t => t.id === this.settings.game.team) || TEAMS[0]; },
   refreshGarageCar() { if (this.garage) this.garage.setCar(this.team, this.settings.game.number); },
@@ -88,6 +113,12 @@ const Game = {
   //  Sitzung
   // ---------------------------------------------------------------------------
   get trackId() { const t = this.settings.game.track; return TRACKS[t] ? t : 'ringpark'; },
+  /** Startreifen: bei nasser Strecke automatisch Intermediate/Regenreifen */
+  _startCompound(want) {
+    const best = this.weather && Weather.bestFor(this.weather.water);
+    if (best && want !== 'inter' && want !== 'wet') { setTimeout(() => UI.hudMsg(`Nasse Strecke – ${COMPOUNDS[best].name}-Reifen aufgezogen`, 3000), 2800); return best; }
+    return want;
+  },
   getLine(id) { if (!this.lines[id]) this.lines[id] = new RacingLine(this.getTrackModel(id)); return this.lines[id]; },
   setupFor(id) { return Object.assign({}, DEFAULT_SETUP, Save.get('setups', {})[id] || {}); },
   saveSetup(id, setup) { const all = Save.get('setups', {}); all[id] = Object.assign({}, setup); Save.set('setups', all); },
@@ -111,16 +142,17 @@ const Game = {
   /** Strecke (Welt, Grafik, Minikarte) nur bei Bedarf neu aufbauen */
   async _prepareTrack(id) {
     const track = this.track = this.getTrackModel(id);
-    const key = track.id + '|' + Render.quality.trees;
+    const tod = this.settings.game.timeOfDay && this.settings.game.timeOfDay !== 'track' ? this.settings.game.timeOfDay : track.def.timeOfDay;
+    const key = track.id + '|' + Render.quality.trees + '|' + tod;
     if (this.builtFor !== key) {
       if (Render.scene) Render.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-      Render.createWorld(track.def.timeOfDay);
+      Render.createWorld(tod);
       this.trackVisual = new TrackVisual(track, Render.quality);
       Render.scene.add(this.trackVisual.group);
       this.minimap = new Minimap(track, 220);
       this.builtFor = key;
     }
-    this.tvSpots = buildTvSpots(track);
+    this.tvSpots = buildTvSpots(track, (this.trackVisual && this.trackVisual.blocked) || []);
     this.idealLine = new IdealLineVisual(track, this.getLine(track.id));
     Render.scene.add(this.idealLine.mesh);
     return track;
@@ -156,7 +188,7 @@ const Game = {
     this._updateVisuals(0, 1);
     Render.renderer.compile(Render.scene, Render.camera);
     $('boot').classList.add('hidden');
-    $('hudMode').textContent = this.mode === 'race' ? 'Rennen' : 'Testfahrt';
+    $('hudMode').textContent = this.mode === 'race' ? 'Rennen' : this.mode === 'quali' ? 'Qualifying' : 'Testfahrt';
     UI.setHudVisible(this.hudOn);
     Input.gameActive = true; Input.flush();
     AudioSys.setActive(true);
@@ -179,30 +211,95 @@ const Game = {
       await nextFrame();
       this.mode = 'test';
       const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
-      v.setCompound(this.settings.game.compound, 70);
+      this.weather = new Weather(this.settings.game.weather || 'dry', { duration: 1500 });
+      v.water = this.weather.water;
+      v.setCompound(this._startCompound(this.settings.game.compound), 70);
       v.placeOnTrack(track, track.length - 30, -track.HW[track.N - 15] * 0.42);
       v.gear = 1;
       this.applyAids();
       this._playerVisual();
       this.session = new PracticeSession(track);
+      this._wxState = null;
       if (this.settings.game.ghost !== false) { this.ghost = new GhostCar(this.team, this.settings.game.number); Render.scene.add(this.ghost.root); }
       this._go('Testfahrt – ' + track.name);
     } catch (err) { this._fail(err); }
   },
 
+  /** Rennen-Parameter: Schnelles Rennen aus den Einstellungen, in der Meisterschaft aus der Saison */
+  raceParams() {
+    const R = this.settings.race, G = this.settings.game, S = this.season && this.seasonRound ? this.season : null;
+    if (!S) return { trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
+    const trackId = S.tracks[S.round];
+    return { trackId, laps: Season.lapsFor(S, this.getTrackModel(trackId)), opponents: 19, strength: S.strength, weather: S.weather, quali: S.quali, qualiMin: S.qualiMin, team: S.team, name: S.playerName || 'Du', number: S.number, season: true };
+  },
+  _field(P) { const R = this.settings.race; return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
+  /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
+  startEvent() { const P = this.raceParams(); this.pendingGrid = null; if (P.quali) this.startQualifying(); else this.startRace(); },
+
+  /** Qualifying: freie Fahrt gegen die Uhr, KI-Zeiten werden geschätzt (QualiSession) */
+  async startQualifying() {
+    await this._begin('Qualifying wird vorbereitet …');
+    try {
+      const P = this.raceParams();
+      this.settings.game.track = P.trackId;
+      const track = await this._prepareTrack(P.trackId);
+      $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
+      await nextFrame();
+      this.mode = 'quali';
+      const wx = this.weather = new Weather(P.weather, { duration: P.qualiMin * 60 + 600 });
+      this.eventWeather = wx.type;
+      const field = this._field(P);
+      const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
+      v.water = wx.water;
+      v.setCompound(this._startCompound(qualiCompound(0)), 70);
+      v.placeOnTrack(track, track.length - 30, -track.HW[track.N - 15] * 0.42);
+      v.gear = 1;
+      this.applyAids();
+      this._playerVisual();
+      this.session = new QualiSession(track, field, { line: this.getLine(track.id), minutes: P.qualiMin, strength: P.strength, water: wx.water });
+      this._wxState = null;
+      if (this.settings.game.ghost !== false) { this.ghost = new GhostCar(this.team, this.settings.game.number); Render.scene.add(this.ghost.root); }
+      UI.setRaceHud(true, field.length, 'quali');
+      this._go(`Qualifying – ${track.name} · ${P.qualiMin} min`);
+    } catch (err) { this._fail(err); }
+  },
+  /** Qualifying vorbei → Ergebnis, danach Rennen mit dieser Startaufstellung */
+  _qualiDone() {
+    if (this.mode !== 'quali' || this.state === 'finished') return;
+    const q = this.session;
+    this.pendingGrid = q.grid();
+    setTimeout(() => {
+      if (this.session !== q) return;
+      if (this.state === 'paused') UI.hideScreens();
+      this.state = 'finished'; Input.gameActive = false; this.loop.paused = true;
+      AudioSys.setActive(false);
+      UI.setHudVisible(false); UI.toggleMfd(false);
+      UI.show('qualiResults', { noHistory: true });
+    }, this.state === 'paused' ? 0 : 1800);
+  },
+
   async startRace() {
     await this._begin('Startaufstellung wird vorbereitet …');
     try {
-      const track = await this._prepareTrack(this.trackId);
+      const P = this.raceParams();
+      this.settings.game.track = P.trackId;
+      const track = await this._prepareTrack(P.trackId);
       $('bootMsg').textContent = 'Ideallinie und Gegner werden berechnet …';
       await nextFrame();
-      const line = this.getLine(track.id), R = this.settings.race, G = this.settings.game;
-      const field = buildField({ playerTeam: G.team, playerName: G.playerName || 'Du', playerNumber: G.number, size: R.opponents + 1, gridMode: R.grid, playerGrid: R.playerGrid });
+      const line = this.getLine(track.id), R = Object.assign({}, this.settings.race, { laps: P.laps, strength: P.strength }), G = this.settings.game;
+      const lapT = refLapTime(track, line);
+      const wx = this.weather = new Weather(this.pendingGrid && this.eventWeather ? this.eventWeather : P.weather, { duration: R.laps * lapT });
+      let field;
+      if (this.pendingGrid) field = this.pendingGrid;
+      else if (P.season) field = simulatedGrid(track, line, this._field(P), { strength: P.strength, water: wx.water, playerGrid: 'middle' });
+      else field = this._field(P);
+      const wetStart = Weather.bestFor(wx.water);
+      field = field.map(e => Object.assign({}, e));
       const mix = ['medium', 'medium', 'soft', 'hard'];
-      for (const e of field) { e.compound = e.player ? G.compound : (R.laps < 10 ? 'soft' : mix[Math.floor(Math.random() * mix.length)]); if (e.player) e.setup = this.setupFor(track.id); }
+      for (const e of field) { e.compound = e.player ? this._startCompound(G.compound) : (wetStart || (R.laps < 10 ? 'soft' : mix[Math.floor(Math.random() * mix.length)])); if (e.player) e.setup = this.setupFor(track.id); }
       const mandatory = R.mandatory === 'auto' ? R.laps >= 10 : R.mandatory === 'on';
       this.mode = 'race';
-      const race = this.race = new RaceSession({ track, line, laps: R.laps, entries: field, damage: R.damage, aiStrength: R.strength, mandatory, safetyCar: R.safetyCar !== false });
+      const race = this.race = new RaceSession({ track, line, laps: R.laps, entries: field, damage: R.damage, aiStrength: R.strength, mandatory, safetyCar: R.safetyCar !== false, weather: wx });
       this.pitPlan = { compound: G.compound === 'medium' ? 'hard' : 'medium', repair: true };
       const me = race.player;
       this.vehicle = me.vehicle;
@@ -387,6 +484,7 @@ const Game = {
       race.step(h);
       if (this.raceRec && me.timing.started && !me.finished) this.raceRec.sample(me.vehicle, me.timing.lapTime, me.timing.progress);
     } else {
+      if (this.weather) { this.weather.step(h); this.vehicle.water = this.weather.water; }
       this.vehicle.step(h);
       this.session.step(h, this.vehicle);
     }
@@ -424,7 +522,7 @@ const Game = {
     // Ereignisse aus der Physik
     for (const e of v.events) {
       if (e.type === 'shift') AudioSys.shift(e.value > 0);
-      else if (e.type === 'impact') { AudioSys.impact(e.value); if (e.value > 3 && !e.car) UI.hudMsg('Einschlag!', 900); if (this.mode === 'test') this.session.invalidate(); }
+      else if (e.type === 'impact') { AudioSys.impact(e.value); if (e.value > 3 && !e.car) UI.hudMsg('Einschlag!', 900); if (this.mode !== 'race') this.session.invalidate(); }
       else if (e.type === 'shiftDenied') { AudioSys.beep(420, 0.08, 0.2); UI.hudMsg('Schaltsperre – Drehzahl zu hoch', 1000); }
     }
     v.events.length = 0;
@@ -444,9 +542,16 @@ const Game = {
     Render.updateSun(this.carVis.root.position);
     this._otherCars(dt, alpha, now);
     if (this.idealLine) this.idealLine.update(v, this.state === 'finished' || (this.race && (this.race.player.ai || this.race.player.pitPilot)) ? 'off' : (S.aids.idealLine || 'off'));
-    if (driving) { this._particles(dt); Render.updateParticles(dt); }
+    const wx = this.weather;
+    if (wx) {
+      Render.setWeather(wx.cloud, wx.rain);
+      if (this.trackVisual) this.trackVisual.setWet(wx.water);
+      if (Render.rain) Render.rain.update(dt, wx.rain * (Render.quality.particles > 0 ? 1 : 0.4), Render.camera, v.vel);
+      this._weatherRadio(dt);
+    }
+    if (driving) { this._particles(dt); if (wx && wx.water > 0.12) this._spray(v, dt, wx.water); Render.updateParticles(dt); }
     // Audio
-    AudioSys.update(dt, v, { interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
+    AudioSys.update(dt, v, { rain: wx ? wx.rain : 0, interior: this.camMode === 'cockpit' || this.camMode === 'tcam', allowPops: true, crowd: this.trackVisual ? this.trackVisual.crowdLevel(v.pos.x, v.pos.z) : 0 });
     // Rumble (Controller): Kerbs/Aufsetzen/Einschlag stark, Schlupf/Blockieren schwach
     if (driving && Input.state.steerSource === 'pad') {
       const W = v.wheels;
@@ -462,8 +567,29 @@ const Game = {
         this._raceHudT = (this._raceHudT || 0) + dt;
         if (this._raceHudT > 0.25) { this._raceHudT = 0; UI.updateRaceHud(this.race); }
         UI.setSectors(this.raceSectors, this.race.player.timing.started ? this.race.player.timing.sector : -1);
+      } else if (this.mode === 'quali' && this.session) {
+        this._raceHudT = (this._raceHudT || 0) + dt;
+        if (this._raceHudT > 0.25) { this._raceHudT = 0; UI.updateQualiHud(this.session); }
+        UI.setSectors(this.session.sectorState, this.session.started ? this.session.timing.sector : -1);
       } else if (this.session && this.session.sectorState) UI.setSectors(this.session.sectorState, this.session.started ? this.session.timing.sector : -1);
     }
+  },
+  /** Gischt hinter den Hinterrädern auf nasser Strecke */
+  _spray(v, dt, water) {
+    const fx = Render.fx, q = Render.quality.particles; if (!fx || q <= 0 || v.speed < 14) return;
+    const n = 60 * water * q * smoothstep(14, 60, v.speed) * dt, R = Math.random;
+    let k = n; while (k > 0) { if (k >= 1 || R() < k) { const w = v.wheels[2 + (R() < 0.5 ? 0 : 1)];
+      fx.smoke.spawn(w.cx + (R() - 0.5) * 0.4, w.cy + 0.25, w.cz + (R() - 0.5) * 0.4, v.vel.x * 0.55 + (R() - 0.5) * 2, 0.6 + R(), v.vel.z * 0.55 + (R() - 0.5) * 2, 0.7 + R() * 0.5, 1.2, 3.2, 0.82, 0.86, 0.9, 0.22 * water, 2.2, 0.2); } k -= 1; }
+  },
+  /** Funk bei Wetterwechsel */
+  _weatherRadio(dt) {
+    const wx = this.weather; this._wxT = (this._wxT || 0) + dt; if (this._wxT < 1) return; this._wxT = 0;
+    const st = wx.rain > 0.05 ? 'rain' : wx.water > 0.3 ? 'wet' : wx.cloud > 0.8 ? 'clouds' : 'dry';
+    if (this._wxState && st !== this._wxState && (this.state === 'driving')) {
+      const txt = { rain: 'Funk: Regen setzt ein!', wet: 'Funk: Regen hört auf – Strecke trocknet ab', clouds: 'Funk: Regen in wenigen Minuten erwartet', dry: 'Funk: Strecke ist trocken – Slicks!' }[st];
+      if (txt) { UI.hudMsg(txt, 3200); AudioSys.radio(); }
+    }
+    this._wxState = st;
   },
   /** KI-Fahrzeuge, Ghost und Gegner-Motorklang */
   _otherCars(dt, alpha, now) {
@@ -489,6 +615,7 @@ const Game = {
       vis.update(v, alpha, v.input.steer * CAR_SPEC.steerLockDeg, null, now);
       const dx = v.pos.x - cp.x, dy = v.pos.y - cp.y, dz = v.pos.z - cp.z, dist = Math.hypot(dx, dy, dz);
       setCarLod(vis, dist, shadows);
+      if (this.weather && this.weather.water > 0.12 && dist < 90 && this.state !== 'paused') this._spray(v, dt, this.weather.water);
       if (dist < 250) {
         const inv = 1 / Math.max(0.1, dist);
         // Annäherungsgeschwindigkeit entlang der Sichtlinie (für Doppler)

@@ -99,6 +99,7 @@ const UI = {
       h('div.brand-sub', 'World Championship'),
       h('div.menu',
         btn('Schnelles Rennen', () => this.show('raceSetup'), 'primary', '▶'),
+        btn(Game.season && !Season.done(Game.season) ? `Meisterschaft · Runde ${Game.season.round + 1}/${Game.season.tracks.length}` : 'Meisterschaft', () => this.show('season')),
         btn('Testfahrt / Training', () => this.show('drive')),
         btn('Lenkrad kalibrieren', () => this.openWizard()),
         btn('Eingabetest', () => this.show('inputTest')),
@@ -138,6 +139,10 @@ const UI = {
             h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Kurven: ' + corners),
           )),
           h('div.card', h('h3', 'Strecke wählen'), chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), track.id, v => { S.game.track = v; Game.saveSettings(); this.show('drive', { noHistory: true }); })),
+          h('div.card', h('h3', 'Wetter & Tageszeit'),
+            chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), S.game.weather || 'dry', v => { S.game.weather = v; Game.saveSettings(); }),
+            h('div', { style: { height: '8px' } }),
+            chips([['track', 'Strecken-Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), S.game.timeOfDay || 'track', v => { S.game.timeOfDay = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Reifenmischung'), chips(COMPOUND_ORDER.slice(0, 5).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Team / Lackierung'), chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), S.game.team, v => { S.game.team = v; Game.saveSettings(); Game.refreshGarageCar(); })),
         ),
@@ -163,13 +168,13 @@ const UI = {
   //  Pause
   // ---------------------------------------------------------------------------
   scr_pause() {
-    const S = Game.settings, race = Game.mode === 'race';
+    const S = Game.settings, race = Game.mode === 'race', quali = Game.mode === 'quali';
     const reason = Game.pauseReason || '';
     // Hinweis: Esc kam als Tastendruck, obwohl mit dem Lenkrad gefahren wurde → vermutlich Steam Input
     const steamHint = Game.pauseWhileWheel && /^Taste /.test(reason);
     const me = race && Game.race ? Game.race.player : null;
     return h('section.screen',
-      h('header', h('span.crumb', 'Pause'), h('h1', race ? `Rennen · P${me ? me.pos : '-'} · Runde ${me ? Math.min(Game.race.laps, Math.max(1, me.timing.lap)) : 1}/${Game.race ? Game.race.laps : '-'}` : 'Testfahrt')),
+      h('header', h('span.crumb', 'Pause'), h('h1', race ? `Rennen · P${me ? me.pos : '-'} · Runde ${me ? Math.min(Game.race.laps, Math.max(1, me.timing.lap)) : 1}/${Game.race ? Game.race.laps : '-'}` : quali && Game.session ? `Qualifying · noch ${fmtClock(Game.session.remaining)}` : 'Testfahrt')),
       reason ? h('div.hint', { style: { maxWidth: '640px' } }, 'Pausiert durch: ', h('b', reason),
         steamHint ? h('div', { style: { marginTop: '6px' } }, 'Du bist mit dem Lenkrad gefahren, die Pause kam aber als Tastendruck. Falls du die Taste nicht gedrückt hast, wandelt vermutlich ', h('b', 'Steam Input'), ' Lenkradknöpfe in Tastatureingaben um (unter Bazzite läuft Steam im Hintergrund) – siehe Hilfe.') : null) : null,
       h('div.menu',
@@ -180,8 +185,9 @@ const UI = {
         btn('Einstellungen', () => this.show('settings')),
         btn('Lenkrad kalibrieren', () => this.openWizard()),
         btn('Hilfe & Steuerung', () => this.show('help')),
+        quali ? btn('Qualifying beenden → Rennen', () => this.confirm('Qualifying jetzt beenden? Es zählt deine bisher beste Runde.', () => Game.session.finish()), 'ghost') : null,
         race ? btn('Rennen neu starten', () => this.confirm('Rennen neu starten?', () => Game.startRace()), 'ghost') : null,
-        btn(race ? 'Rennen aufgeben' : 'Zum Hauptmenü', () => race ? this.confirm('Rennen aufgeben und zum Hauptmenü?', () => Game.toMenu()) : Game.toMenu(), 'ghost'),
+        btn(race ? 'Rennen aufgeben' : 'Zum Hauptmenü', () => race || quali ? this.confirm(race ? 'Rennen aufgeben und zum Hauptmenü?' : 'Qualifying abbrechen und zum Hauptmenü?', () => Game.toMenu()) : Game.toMenu(), 'ghost'),
       ),
       race ? (me ? h('div.row', { style: { marginTop: '22px', alignItems: 'flex-start' } },
           h('div.card', { style: { maxWidth: '420px' } }, h('h3', 'Fahrzeugzustand'), h('p', 'Schaden: ' + Damage.summary(me.vehicle)),
@@ -189,7 +195,7 @@ const UI = {
             h('p', `Track-Limits-Verwarnungen: ${me.warnings} · Strafen: ${me.penalty ? `${me.penalty} s (offen ${me.penalty - me.penaltyServed} s)` : 'keine'}`),
             Game.race.mandatory ? h('p', `Pflichtstopp: ${me.used.size >= 2 ? 'erfüllt' : 'noch offen'} (gefahren: ${[...me.used].map(c => COMPOUNDS[c].name).join(', ')})`) : null),
           h('div.card', { style: { maxWidth: '460px' } }, h('h3', 'Boxenstopp-Plan'),
-            chips(['soft', 'medium', 'hard'].map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.pitPlan.compound, v => { Game.pitPlan.compound = v; if (me.pitPlan) me.pitPlan.compound = v; }),
+            chips(COMPOUND_ORDER.map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.pitPlan.compound, v => { Game.pitPlan.compound = v; if (me.pitPlan) me.pitPlan.compound = v; }),
             fieldRow('Schaden reparieren', toggle([{ value: true, label: 'Ja (+6,5 s)' }, { value: false, label: 'Nein' }], Game.pitPlan.repair, v => { Game.pitPlan.repair = v; if (me.pitPlan) me.pitPlan.repair = v; })),
             h('div.actions', btn(me.pitPlan ? 'Box abbrechen' : 'Box anfordern', () => { Game.race.togglePit(me, Game.pitPlan); this.show('pause', { noHistory: true }); }, me.pitPlan ? 'small ghost' : 'small primary')),
             h('p', { style: { fontSize: '12px' } }, 'Im Rennen Taste B. Ab der Boxeneinfahrt übernimmt der Autopilot (80 km/h, Stopp an deiner Teambox); offene Zeitstrafen werden dabei abgesessen.'))) : null)
@@ -217,6 +223,8 @@ const UI = {
         h('div.col',
           h('div.card', h('h3', 'Rennen & Regeln'),
             h('p', '• ', h('b', 'Start:'), ' Fünf rote Lichter gehen im Sekundentakt an; wenn alle erlöschen, geht es los. Bis dahin hält das Spiel dein Auto über die Kupplung – Gas geben zum Vorbereiten ist erlaubt (mit Traktionskontrolle Vollgas, ohne lieber dosiert).'),
+            h('p', '• ', h('b', 'Qualifying:'), ' Freie Fahrt gegen die Uhr (5/10/15 min). Nur gültige Runden zählen; läuft die Zeit ab, darfst du die begonnene Runde beenden. Die KI-Zeiten erscheinen nach und nach, das Ergebnis ist die Startaufstellung.'),
+            h('p', '• ', h('b', 'Meisterschaft:'), ' Vier Rennen (alle Strecken), Punkte 25-18-15-12-10-8-6-4-2-1 plus 1 für die schnellste Runde in den Top 10. Spielstand wird automatisch gespeichert.'),
             h('p', '• ', h('b', 'Track Limits:'), ' Sind alle vier Räder jenseits der weißen Linie, ist die Runde ungültig. Im Rennen gibt es 3 Verwarnungen, danach je 5 s Zeitstrafe.'),
             h('p', '• ', h('b', 'Windschatten'), ' bis ca. 60 m hinter einem Auto senkt den Luftwiderstand; ', h('b', 'verwirbelte Luft'), ' dicht dahinter kostet Abtrieb. ', h('b', 'Überholmodus'), ' gibt es, wenn du am Erkennungspunkt weniger als 1 s hinter dem Vordermann liegst.'),
             h('p', '• ', h('b', 'Schaden:'), ' Treffer beschädigen Front-/Heckflügel (weniger Abtrieb), Unterboden und Aufhängung (Auto zieht zur Seite). Zustand im MFD.'),
@@ -866,6 +874,7 @@ const UI = {
     this._txt('hudGear', veh.gear === 0 ? 'N' : (veh.gear < 0 ? 'R' : String(veh.gear)));
     this._txt('hudSpeed', String(Math.round(veh.speedKmh)));
     this._txt('hudBB', fmtNum(veh.brakeBias * 100, 1));
+    if (Game.weather) { const w = Game.weather; this._txt('hudWx', `${w.rain > 0.05 ? (w.rain > 0.6 ? 'Starkregen' : 'Regen') : w.cloud > 0.6 ? 'Bewölkt' : 'Sonnig'} · Nässe ${Math.round(w.water * 100)} %`); }
     this._txt('hudComp', COMPOUNDS[veh.compound].name);
     this._cls('indTC', 'on', veh.tcActive); this._cls('indABS', 'on', veh.absActive); this._cls('indLim', 'on', veh.pitLimiter);
     // Energie
@@ -926,6 +935,7 @@ const UI = {
     const W = veh.wheels;
     const wear = W.map(w => Math.round((1 - w.tyre.wear) * 100)).join('/') + ' %';
     const html = `<h4>MFD · Fahrzeug</h4>
+      ${Game.weather ? `<div class="ln"><span>Wetter</span><b>${Game.weather.describe()}</b></div>` : ''}
       <div class="ln"><span>Energiemodus</span><b>${ERS_NAMES[veh.ersMode]}</b></div>
       <div class="ln"><span>Einsatz diese Runde</span><b>${fmtNum(veh.lapDeploy / 1e6, 1)} / ${fmtNum(veh.spec.ers.lapDeployMJ, 1)} MJ</b></div>${Game.mode === 'race' && Game.pitPlan ? `<div class="ln"><span>Boxenplan</span><b>${COMPOUNDS[Game.pitPlan.compound].name}${Game.pitPlan.repair ? ' + Rep.' : ''} (B)</b></div>` : ''}
       <div class="ln"><span>Batterie</span><b>${Math.round(veh.socFrac * 100)} %</b></div>

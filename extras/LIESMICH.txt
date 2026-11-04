@@ -16,7 +16,14 @@ SPIELEN
   mit 80 km/h zu deiner Teambox und zurück auf die Strecke.
   Ab 10 Runden Pflichtstopp: zwei verschiedene Trockenmischungen.
   Flaggen: Gelb/Safety Car/VSC = nicht überholen (sonst 5 s Strafe).
-  Strecken: Kurstadt Ringpark und Falkenried-Ring (nach deiner Skizze).
+  Strecken: Kurstadt Ringpark, Falkenried-Ring (nach deiner Skizze),
+  Hafenstadt-Kurs (Stadtkurs mit Mauern) und Alpental-Ring (Berge).
+  Wetter und Tageszeit wählst du in der Renn-/Testfahrt-Vorbereitung.
+  Bei nasser Strecke: Intermediate (grün) bzw. Regenreifen (blau).
+  Qualifying (in der Rennvorbereitung einschalten): fahre gegen die Uhr,
+  deine beste gültige Runde bestimmt den Startplatz.
+  „Meisterschaft“: Saison über alle vier Strecken mit Punkten, Fahrer- und
+  Teamwertung; der Spielstand wird automatisch gespeichert.
   Fahrhilfe „Ideallinie“: grün = Gas, gelb = Gas weg, rot = bremsen
   (Einstellungen → Fahrhilfen bzw. in der Renn-/Testfahrt-Vorbereitung).
   KI-Stärke 100 % = Grenzbereich des Autos, darüber mehr Grip („Legende“).

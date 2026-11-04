@@ -4,7 +4,14 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
-**Stand: Phase 4**
+**Stand: Phase 5**
+- Wetter: sonnig, bewölkt, leichter/starker Regen, wechselhaft (Regen setzt im Rennen ein), zufällig – Streckennässe trocknet ab bzw. steigt, Intermediate-/Regenreifen, Gischt, nasse Optik, KI wechselt passend die Reifen
+- Tageszeiten: Vormittag, Nachmittag, Abend, Dämmerung (oder Strecken-Standard)
+- Zwei neue Strecken: Hafenstadt-Kurs (3,45 km Stadtkurs mit Mauern) und Alpental-Ring (5,25 km, 37 m Höhenunterschied)
+- Qualifying (5/10/15 min) gegen die Uhr; KI-Zeiten aus dem Tempoprofil geschätzt, Ergebnis = Startaufstellung
+- Meisterschaft über alle vier Strecken: Punkte 25-18-15-12-10-8-6-4-2-1 (+1 schnellste Runde), Fahrer- und Teamwertung, automatisch gespeichert
+
+**Davor (Phase 4)**
 - Boxengasse (Ein-/Ausfahrt als Öffnung in der Boxenmauer, 80 km/h), Boxenstopp-Autopilot, Teamboxen, Service (Reifen, Reparatur, Strafen absitzen)
 - Reifenstrategie: KI plant Stopps nach Verschleiß, Schaden und Safety Car; Pflichtstopp mit zwei Mischungen
 - Flaggen (gelb, blau, grün, Zielflagge), Safety Car mit Kolonne und Neustart, virtuelles Safety Car, Unfallwracks
@@ -37,6 +44,8 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `40_physics.js` | Fahrzeugphysik, 360 Hz, Reifen, Antrieb, Aero, FFB-Moment |
 | `45_ai.js` | KI: Ideallinie (minimale Krümmung), Tempoprofil, Fahrer-Regler, Verkehr |
 | `47_race.js` | Zeitnahme, Track Limits, Kollisionen, Schaden, Rennablauf, Training, Ghost/Telemetrie-Aufzeichnung |
+| `48_weather.js` | Wetter: Bewölkung, Regen, Streckennässe |
+| `49_season.js` | Qualifying (KI-Zeitschätzung) und Meisterschaft (Punkte, Wertungen) |
 | `50_input.js` | Tastatur, Gamepad, Lenkrad, Kalibrierung, Profile |
 | `55_ffb.js` | Force Feedback über WebHID (HID++ 2.0, Feature 0x8123) |
 | `58_engine_model.js` | Physikalisches Motorklang-Modell (AudioWorklet) |
@@ -55,6 +64,8 @@ tools/run-pure.sh tests/physik/test_race.js      # Rennen mit 19 KI-Autos (TRACK
 tools/run-pure.sh tests/physik/test_duel.js      # Zweikampf: KI verteidigt gegen schnelleren „Spieler“
 tools/run-pure.sh tests/physik/test_pit.js       # Boxenstopp: Phasen, Zeitverlust, Service
 tools/run-pure.sh tests/physik/test_sc.js        # Safety Car und VSC: Kolonne, keine Überholmanöver, Neustart
+tools/run-pure.sh tests/physik/test_weather.js   # Regenrennen: Nässe, Reifenwechsel der KI
+tools/run-pure.sh tests/physik/test_season.js    # Qualifying-Schätzung, Meisterschaftswertung
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
 node tests/browser/audio_test.js                 # Motorklang-Worklet
@@ -62,6 +73,7 @@ node tests/browser/race_test.js                  # Schnelles Rennen bis zum Erge
 node tests/browser/practice_test.js              # Phase 2: Setup, Sektoren, Ghost, Track Limits, Telemetrie
 node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, Rennstart
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
+node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
 node tests/audio/test_engine.js                  # Motorklang offline + WAV-Proben
 node tests/browser/ui_test.js
 node tests/browser/smoke_test.js
