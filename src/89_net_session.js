@@ -16,7 +16,8 @@ class NetHost {
     const G = Game.settings.game;
     this.role = 'host'; this.state = 'lobby'; this.code = ''; this.peer = null; this.links = new Map(); this.nextId = 1; this.chat = [];
     this.players = [{ id: 0, name: G.playerName || 'Host', team: G.team, number: G.number, ready: true, host: true, ping: 0 }];
-    this.settings = { track: Game.trackId, era: G.era || 'e2026', laps: 5, ai: 9, weather: 'dry', damage: 'reduced', tod: 'track', safetyCar: true };
+    this.settings = { track: Game.trackId, era: G.era || 'e2026', laps: 5, ai: 9, weather: 'dry', damage: 'reduced', tod: 'track', safetyCar: true, quali: 0 };
+    this.qTimes = new Map(); this.qDone = new Set();
     this.pendingLan = null; this.sendT = 0; this.sumT = 0; this.pingT = 0;
   }
   get me() { return this.players[0]; }
@@ -46,6 +47,8 @@ class NetHost {
   _join(link, m) {
     const refuse = (why) => { link.send({ t: 'refused', why }); setTimeout(() => link.close(), 300); };
     if (m.v !== NET_VER) return refuse('Andere Spielversion – bitte beide die gleiche Datei verwenden.');
+    const lost = this.lost && m.code && this.lost.get(m.code);
+    if (lost && this.race && this.state === 'race') return this._rejoin(link, lost.p);
     if (this.state !== 'lobby') return refuse('Das Rennen läuft bereits.');
     if (this.players.length >= NET_MAX_PLAYERS) return refuse('Lobby ist voll.');
     let name = String(m.name || 'Spieler').slice(0, 24), k = 2; while (this.players.some(p => p.name === name)) name = String(m.name).slice(0, 21) + ' ' + k++;
@@ -59,11 +62,26 @@ class NetHost {
     this.sys(`${p.name} ist beigetreten`);
     this.broadcastLobby();
   }
+  /** Wiederverbinden während des Rennens: gleicher Spieler (Freundescode), gleiches Auto */
+  _rejoin(link, p) {
+    this.lost.delete(p.code);
+    link.joined = true; this.links.set(p.id, link);
+    link.onMsg = (mm) => this._onMsg(p, mm); link.onBin = (buf) => this._onBin(p, buf); link.onClose = () => this._left(p);
+    const e = this.race.entries.find(x => x.netId === p.id);
+    e.active = true;
+    link.send({ t: 'welcome', id: p.id });
+    link.send({ t: 'start', settings: this.settings, grid: this.grid.map(g => ({ kind: g.kind, id: g.id ?? -1, name: g.name, team: g.team, number: g.number })),
+      rejoin: { st: e.vehicle.netState(), laps: e.timing.laps.length, progress: e.timing.progress, cpd: COMPOUND_ORDER.indexOf(e.vehicle.compound) } });
+    this.sys(`${p.name} ist wieder da`); this.race.msg(`${p.name} ist wieder verbunden`, e, 'info');
+  }
   _onMsg(p, m) {
     if (m.t === 'chat') this.say(p.name, String(m.text || '').slice(0, 200));
     else if (m.t === 'ready') { p.ready = !!m.on; this.broadcastLobby(); }
     else if (m.t === 'me') { if (m.team && TEAMS.some(t => t.id === m.team)) p.team = m.team; if (m.number && !this.players.some(o => o !== p && o.number === m.number)) p.number = clamp(m.number | 0, 1, 99); this.broadcastLobby(); }
-    else if (m.t === 'leave') { const l = this.links.get(p.id); if (l) l.close(); }
+    else if (m.t === 'leave') { p.left = true; const l = this.links.get(p.id); if (l) l.close(); }
+    else if (m.t === 'qlap') { const t = +m.time; if (t > 20 && t < (this.qTimes.get(p.id) ?? Infinity)) this.qTimes.set(p.id, t); }
+    else if (m.t === 'qdone') { this.qDone.add(p.id); Events.emit('net:qdone', p.id); }
+    else if (m.t === 'pen' && this.race) { const e = this.race.entries.find(x => x.netId === p.id); if (e) { e.penalty += clamp(m.s | 0, 0, 30); this.race.msg(`${e.name}: ${m.s} s Zeitstrafe (${String(m.why || '').slice(0, 40)})`, e, 'pen'); } }
   }
   _onBin(p, buf) {
     if (this.state !== 'race' || !this.race) return;
@@ -71,9 +89,24 @@ class NetHost {
     const e = this.race.entries.find(x => x.netId === p.id); if (!e) return;
     e.vehicle.netApply(list[0].st);
     if (list[0].flags & 1) e.netRetired = true;
+    const pit = !!(list[0].flags & 4);
+    if (e.pitting && !pit) { e.pitStops++; e.used.add(e.vehicle.compound); }   // Stopp des Gasts beendet
+    e.pitting = pit;
   }
   _left(p) {
     if (!this.players.includes(p)) return;
+    // Rennen läuft und der Gast ist nicht absichtlich gegangen: 90 s auf ein Wiederverbinden warten
+    if (this.race && this.state === 'race' && !p.left && p.code) {
+      const e = this.race.entries.find(x => x.netId === p.id);
+      if (e && !e.finished && !e.retired) {
+        this.lost = this.lost || new Map(); this.lost.set(p.code, { p, t: Date.now() });
+        e.active = false; this.links.delete(p.id);
+        this.sys(`${p.name}: Verbindung verloren – wartet 90 s auf Wiederverbinden`); this.race.msg(`${p.name}: Verbindung verloren`, e, 'info');
+        setTimeout(() => { const L = this.lost && this.lost.get(p.code); if (L && L.p === p && this.race) { this.lost.delete(p.code); if (!e.retired) this.race._retire(e, 'Verbindung getrennt'); this.players = this.players.filter(x => x !== p); this.broadcastLobby(); } }, 90000);
+        this.broadcastLobby();
+        return;
+      }
+    }
     this.players = this.players.filter(x => x !== p); this.links.delete(p.id);
     this.sys(`${p.name} hat die Lobby verlassen`);
     if (this.race) { const e = this.race.entries.find(x => x.netId === p.id); if (e && !e.retired && !e.finished) { e.netRetired = true; } }
@@ -101,14 +134,36 @@ class NetHost {
   }
   start() {
     if (this.state !== 'lobby') return;
-    this.state = 'race';
     const grid = this.grid = this._grid();
     const wx = new Weather(this.settings.weather || 'dry');      // Zufall einmal auflösen, alle bekommen denselben Typ
     this.settings.weatherType = wx.type;
+    if (this.settings.quali > 0) {
+      // Qualifying: alle fahren gleichzeitig allein gegen die Uhr, der Host sammelt die Zeiten
+      this.state = 'quali'; this.qTimes = new Map(); this.qDone = new Set();
+      this.broadcast({ t: 'startQuali', settings: this.settings, grid: grid.map(g => ({ kind: g.kind, id: g.id ?? -1, name: g.name, team: g.team, number: g.number })) });
+      this.broadcastLobby();
+      Game.netHost = this; Game.seasonRound = false; Game.careerRound = false; Game.pendingGrid = null;
+      Game.startQualifying();
+      return;
+    }
+    this.state = 'race';
     this.broadcast({ t: 'start', settings: this.settings, grid: grid.map(g => ({ kind: g.kind, id: g.id ?? -1, name: g.name, team: g.team, number: g.number })) });
     this.broadcastLobby();
     Game.netStartHost(this);
   }
+  /** Qualifying vorbei (Host) → Startaufstellung aus der Rangliste, Rennen für alle starten */
+  raceFromQuali() {
+    if (this.state !== 'quali') return;
+    const q = Game.session, order = q && q.kind === 'quali' ? q.grid() : null;
+    if (!order) return;
+    this.grid = order.map(e => e.player ? { kind: 'host', id: 0, name: e.driver.name, team: e.team, number: e.number } : e.remote ? { kind: 'remote', id: e.netId, name: e.driver.name, team: e.team, number: e.number } : { kind: 'ai', name: e.driver.name, team: e.team, number: e.number, driver: e.driver });
+    this.state = 'race';
+    this.broadcast({ t: 'start', settings: this.settings, grid: this.grid.map(g => ({ kind: g.kind, id: g.id ?? -1, name: g.name, team: g.team, number: g.number })) });
+    this.broadcastLobby();
+    Game.netHost = this; Game.pendingGrid = order; Game.startRace();
+  }
+  /** Rangliste fürs Qualifying-HUD der Gäste */
+  qStandings() { const q = Game.session; if (!q || q.kind !== 'quali') return []; return q.standings().map(r => ({ name: r.name, team: r.team, time: isFinite(r.time) ? r.time : 0, id: r.player ? 0 : r.remote ? r.e.netId : -1 })); }
   /** Vom Spiel nach dem Aufbau des Rennens aufgerufen */
   attachRace(race) {
     this.race = race;
@@ -117,6 +172,7 @@ class NetHost {
   /** Pro Frame (Host): Zustände 20 Hz, Rennübersicht 4 Hz, Ping 0,5 Hz */
   tick(dt) {
     this.pingT += dt; if (this.pingT > 2) { this.pingT = 0; for (const [id, l] of this.links) { l.ping(); const p = this.players.find(x => x.id === id); if (p) p.ping = l.rtt; } }
+    if (this.state === 'quali') { this.qT = (this.qT || 0) + dt; if (this.qT > 1) { this.qT = 0; this.broadcast({ t: 'qstand', rows: this.qStandings(), done: [...this.qDone] }); } }
     const race = this.race; if (!race || this.state !== 'race') return;
     this.sendT += dt; this.sumT += dt;
     if (this.sendT >= 0.05) {
@@ -152,6 +208,7 @@ class NetClient {
   constructor() { this.role = 'client'; this.state = 'connecting'; this.id = -1; this.lobby = null; this.link = null; this.peer = null; this.sendT = 0; this.ownPeer = false; }
   async joinCode(code) {
     code = normCode(code); if (code.length < 4) throw new Error('Bitte den Lobby-Code eingeben');
+    this.code = code;
     this.peer = NetPresence.peer && !NetPresence.peer.destroyed ? NetPresence.peer : null;
     if (!this.peer) { this.peer = await NetBroker.open(NET_PREFIX + 'c-' + netCode(10)); this.ownPeer = true; }
     const link = await NetBroker.connect(this.peer, NET_PREFIX + 'l-' + code);
@@ -171,14 +228,29 @@ class NetClient {
     link.send({ t: 'hello', v: NET_VER, name: G.playerName || 'Spieler', team: G.team, number: G.number, code: me.code });
     link.onMsg = (m) => this._onMsg(m);
     link.onBin = (buf) => { if (Game.netView) Game.netView.applySnap(NetCodec.decode(buf)); };
-    link.onClose = () => { if (Net.session === this) { Net.session = null; Events.emit('net:closed', this.closedWhy || 'Verbindung zum Host getrennt'); } };
+    link.onClose = () => {
+      if (Net.session !== this || this.link !== link) return;
+      if (this.state === 'race' && this.code && !this.closedWhy && !this.leaving) { this._reconnect(); return; }
+      Net.session = null; Events.emit('net:closed', this.closedWhy || 'Verbindung zum Host getrennt');
+    };
     setInterval(() => { if (this.link && this.link.open) this.link.ping(); }, 2000);
+  }
+  async _reconnect() {
+    Events.emit('net:reconnecting');
+    for (let k = 0; k < 8 && Net.session === this; k++) {
+      await new Promise(r => setTimeout(r, 2500));
+      try { if (this.peer.disconnected) this.peer.reconnect(); const link = await NetBroker.connect(this.peer, NET_PREFIX + 'l-' + this.code); this._attach(link); this.state = 'race'; return; }
+      catch (e) { /* nächster Versuch */ }
+    }
+    if (Net.session === this) { Net.session = null; Events.emit('net:closed', 'Verbindung zum Host verloren'); }
   }
   _onMsg(m) {
     if (m.t === 'welcome') { this.id = m.id; Events.emit('net:joined', m); }
     else if (m.t === 'refused' || m.t === 'closed') { this.closedWhy = m.why; Events.emit('net:closed', m.why); if (Net.session === this) Net.session = null; this.link.close(); }
     else if (m.t === 'lobby') { this.lobby = m; Events.emit('net:lobby', m); }
     else if (m.t === 'start') { this.state = 'race'; Game.netStartClient(this, m); }
+    else if (m.t === 'startQuali') { this.state = 'quali'; this.qRows = []; Game.netStartClientQuali(this, m); }
+    else if (m.t === 'qstand') { this.qRows = m.rows; }
     else if (m.t === 'race') { if (Game.netView) Game.netView.applySummary(m); }
     else if (m.t === 'hit') { if (Game.netView) Game.netView.applyHit(m); }
     else if (m.t === 'result') { if (Game.netView) Game.netView.applyResult(m); }
@@ -188,8 +260,11 @@ class NetClient {
   chat(text) { this.link.send({ t: 'chat', text }); }
   ready(on) { this.link.send({ t: 'ready', on }); }
   setMe(patch) { this.link.send(Object.assign({ t: 'me' }, patch)); }
+  qualiLap(time) { if (this.link) this.link.send({ t: 'qlap', time }); }
+  qualiDone() { if (this.link) this.link.send({ t: 'qdone' }); }
+  penalty(s, why) { if (this.link) this.link.send({ t: 'pen', s, why }); }
   sendCar(v, flags) { if (this.link) this.link.sendBin(NetCodec.encode([{ id: this.id, st: v.netState(), flags }])); }
-  close() { try { this.link && this.link.send({ t: 'leave' }); } catch (e) { /* egal */ } setTimeout(() => { if (this.link) this.link.close(); if (this.ownPeer && this.peer) try { this.peer.destroy(); } catch (e) { /* egal */ } }, 200); }
+  close() { this.leaving = true; try { this.link && this.link.send({ t: 'leave' }); } catch (e) { /* egal */ } setTimeout(() => { if (this.link) this.link.close(); if (this.ownPeer && this.peer) try { this.peer.destroy(); } catch (e) { /* egal */ } }, 200); }
 }
 
 /**
@@ -210,13 +285,21 @@ class NetView {
       const slot = gridSlot(track, k);
       v.placeOnTrack(track, slot.s, slot.lat); v.gear = 1;
       if (!mine) { v.netApply(v.netState()); }
-      return { idx: k, name: g.name, team: g.team, number: g.number, player: mine, netId: g.id, kind: g.kind, vehicle: v, active: true, retired: false, finished: false, pitting: false, penalty: 0, penaltyServed: 0,
+      return { idx: k, name: g.name, team: g.team, number: g.number, player: mine, netId: g.id, kind: g.kind, vehicle: v, active: true, retired: false, finished: false, pitting: false, penalty: 0, penaltyServed: 0, teamIdx: Math.max(0, TEAMS.findIndex(t => t.id === g.team)), warnings: 0, jump: false, gridX: v.pos.x, gridZ: v.pos.z, stintStart: 0,
         pitStops: 0, used: new Set([v.compound]), pos: k + 1, distance: slot.s - L, gap: 0, lapsDone: 0, best: Infinity, ghostT: 0, ai: null, pitPlan: null,
         timing: mine ? new LapTiming(track, { mode: 'race' }) : { lap: 1, laps: [], bestLap: Infinity, lastLap: Infinity, lapTime: 0, started: false, progress: 0, valid: true, sector: 0, on() { }, step() { } } };
     });
     this.player = this.entries.find(e => e.player);
     this.player.timing.prevS = vehicle.trackS;
-    this.player.timing.on((type, data) => { if (type === 'lap') Events.emit('lap:done', data.time, data.valid); });
+    this.player.timing.on((type, data) => {
+      if (type === 'lap') Events.emit('lap:done', data.time, data.valid);
+      else if (type === 'limits') {   // Track Limits: 3 Verwarnungen, danach je 5 s (dem Host melden)
+        const me = this.player; me.warnings = data;
+        if (data <= 3) Events.emit('race:limits', data, data === 3 ? 'Schwarz-weiße Flagge' : `Verwarnung ${data}/3`);
+        else { this.client.penalty(5, 'Track Limits'); Events.emit('race:limits', data, '5 s Zeitstrafe'); }
+      } else if (type === 'sector') Events.emit('race:sector', data);
+    });
+    this.rng = Math.random;
     this.order = this.entries.slice();
     this.byIdx = new Map(this.entries.map(e => [e.idx, e]));
     this.contacts = this.entries.map(e => ({ active: true, ghostT: 0, vehicle: e.vehicle, e }));
@@ -227,11 +310,17 @@ class NetView {
     if (r && r.amt > 0.08) Events.emit('race:damage', r.parts, Damage.summary(v));
     if (Damage.terminal(v) && !this.player.retired) { this.player.retired = true; this.player.myRetired = true; Events.emit('race:retired', this.player, 'Unfall'); }
   }
+  msg(text, entry, kind) { Events.emit('race:msg', text, entry, kind); }
   step(h) {
     this.time += h;
     const me = this.player, v = me.vehicle;
     if (this.state !== 'race' && !me.ai) { v.input.clutch = 1; if (this.state === 'grid') v.input.brake = Math.max(v.input.brake, 0.3); }
-    if (me.ai) me.ai.control(h, { cars: this.entries, me, state: 'race', time: this.time });
+    // Frühstart: mehr als 1 m vor dem Erlöschen der Ampel
+    if ((this.state === 'grid' || this.state === 'lights') && !me.jump && Math.hypot(v.pos.x - me.gridX, v.pos.z - me.gridZ) > 1.0) { me.jump = true; this.client.penalty(5, 'Frühstart'); Events.emit('race:limits', 0, 'Frühstart – 5 s Zeitstrafe'); }
+    // Boxenstopp: gleiche Logik wie im Einzelspieler (Autopilot fährt auf diesem PC durch die Gasse)
+    if (this.state === 'race' && !me.myRetired) this._pitLogic(me);
+    const drv = me.pitPilot || me.ai;
+    if (drv) drv.control(h, { cars: this.entries, me, state: 'race', time: this.time });
     if (!me.myRetired) v.step(h); else { v.input.throttle = 0; v.input.brake = 1; v.step(h); }
     me.timing.step(h, v);
     for (const e of this.entries) if (!e.player) e.vehicle.netStep(h);
@@ -243,7 +332,7 @@ class NetView {
     });
     me.distance = me.timing.started ? me.timing.laps.length * this.track.length + me.timing.progress : v.trackS - this.track.length;
     this.sendT = (this.sendT || 0) + h;
-    if (this.sendT >= 1 / 30) { this.sendT = 0; this.client.sendCar(v, me.myRetired ? 1 : 0); }
+    if (this.sendT >= 1 / 30) { this.sendT = 0; this.client.sendCar(v, (me.myRetired ? 1 : 0) | (me.pitting ? 4 : 0)); }
   }
   applySnap(list) {
     for (const c of list) {
@@ -269,7 +358,7 @@ class NetView {
       const e = this.byIdx.get(o[0]); if (!e) return;
       e.pos = i + 1; e.lapsDone = o[1]; e.gap = o[2]; const f = o[3];
       if (!e.player || !e.myRetired) e.retired = !!(f & 1);
-      const wasFin = e.finished; e.finished = !!(f & 2); e.pitting = !!(f & 4); e.penalty = o[4]; e.best = o[5] || Infinity;
+      const wasFin = e.finished; e.finished = !!(f & 2); if (!e.player) e.pitting = !!(f & 4); e.penalty = o[4]; e.best = o[5] || Infinity;
       if (!e.player && e.retired) e.active = false;
       if (e.player && e.finished && !wasFin) Events.emit('race:finished', e);
       order.push(e);
@@ -285,9 +374,11 @@ class NetView {
     if (b.gap < 0 || a.gap < 0) { const la = a.gap < 0 ? -a.gap : 0, lb = b.gap < 0 ? -b.gap : 0; if (lb - la >= 1) return { laps: Math.round(lb - la) }; }
     return { s: Math.max(0, (b.gap > 0 ? b.gap : 0) - (a.gap > 0 ? a.gap : 0)) };
   }
-  togglePit() { return 'nicht verfügbar'; }
   classification() {
     const rows = this.result ? this.result.rows : this.order.map((e, i) => ({ idx: e.idx, pos: i + 1, laps: e.lapsDone, best: e.best, total: null, penalty: e.penalty, retired: e.retired, finished: e.finished, gap: i ? this.gap(this.order[0], e) : null }));
     return rows.map(r => { const e = this.byIdx.get(r.idx); return { e, pos: r.pos, name: e.name, team: e.team, number: e.number, laps: r.laps, best: r.best || Infinity, total: r.total, penalty: r.penalty, retired: r.retired, finished: r.finished, gap: r.gap, gapTotal: r.gapTotal }; });
   }
 }
+
+// Box-Logik der Rennsitzung wiederverwenden (gleiche Felder: track, line, state, weather, laps, rng, msg)
+for (const k of ['togglePit', '_pitLogic', '_beginPit', '_service', '_damaged']) NetView.prototype[k] = RaceSession.prototype[k];

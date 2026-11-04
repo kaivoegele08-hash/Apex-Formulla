@@ -67,7 +67,7 @@ const Game = {
     });
     Events.on('lap:done', (t, valid) => { UI.hudMsg(`Runde ${fmtTime(t)}${valid ? '' : ' (ungültig)'}`, 2600); AudioSys.radio(); });
     Events.on('lap:best', (t) => UI.hudMsg(`Neue Bestzeit ${fmtTime(t)}`, 3000));
-    Events.on('quali:best', (t, pos) => { UI.hudMsg(`Qualifying: ${fmtTime(t)} – vorläufig P${pos}`, 3200); AudioSys.radio(); });
+    Events.on('quali:best', (t, pos) => { if (Net.session && Net.session.role === 'client') Net.session.qualiLap(t); UI.hudMsg(`Qualifying: ${fmtTime(t)} – vorläufig P${pos}`, 3200); AudioSys.radio(); });
     Events.on('quali:last', () => { UI.hudMsg('Zeit abgelaufen – laufende Runde zu Ende fahren', 3200); AudioSys.radio(); });
     Events.on('quali:end', () => { UI.hudMsg('Qualifying beendet', 2000); this._qualiDone(); });
     Events.on('lap:limits', (n) => { UI.hudMsg('Track Limits – Runde ungültig', 1800); AudioSys.beep(520, 0.1, 0.2); });
@@ -284,7 +284,7 @@ const Game = {
   raceParams() {
     const R = this.settings.race, G = this.settings.game, C = this.careerRound && this.career ? this.career : null;
     const NH = this.netHost;
-    if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: 1, weather: s.weatherType || 'dry', quali: false, qualiMin: 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
+    if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: 1, weather: s.weatherType || 'dry', quali: s.quali > 0, qualiMin: s.quali || 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
     const S = C ? C.season : this.season && this.seasonRound ? this.season : null;
     if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
     const trackId = TRACKS[S.tracks[S.round]] ? S.tracks[S.round] : 'ringpark';
@@ -300,19 +300,22 @@ const Game = {
   startEvent() { this.netHost = null; const P = this.raceParams(); this.pendingGrid = null; if (P.quali) this.startQualifying(); else this.startRace(); },
 
   /** Qualifying: freie Fahrt gegen die Uhr, KI-Zeiten werden geschätzt (QualiSession) */
-  async startQualifying() {
+  /** o (Mehrspieler-Gast): { P, field, qopts } statt Einstellungen/Feld/Sitzungsoptionen aus der Spielerwahl */
+  async startQualifying(o = {}) {
     await this._begin('Qualifying wird vorbereitet …');
     try {
-      const P = this.raceParams();
+      const P = o.P || this.raceParams();
       this._useEra(P.era);
       this.settings.game.track = P.trackId;
+      this._todOverride = P.tod || null;
       const track = await this._prepareTrack(P.trackId);
+      this._todOverride = null;
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
       await nextFrame();
       this.mode = 'quali';
       const wx = this.weather = new Weather(P.weather, { duration: P.qualiMin * 60 + 600 });
       this.eventWeather = wx.type;
-      const field = this._field(P);
+      const field = o.field || this._field(P);
       const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
       v.water = wx.water;
       v.setCompound(this._startCompound(qualiCompound(0)), 70);
@@ -321,7 +324,7 @@ const Game = {
       v.gear = 1;
       this.applyAids();
       this._playerVisual();
-      this.session = new QualiSession(track, field, { line: this.getLine(track.id), minutes: P.qualiMin, strength: P.strength, water: wx.water });
+      this.session = new QualiSession(track, field, Object.assign({ line: this.getLine(track.id), minutes: P.qualiMin, strength: P.strength, water: wx.water }, this.netHost ? { remoteTime: (id) => this.netHost.qTimes.get(id) ?? Infinity } : {}, o.qopts || {}));
       this._wxState = null;
       if (this.settings.game.ghost !== false) { this.ghost = new GhostCar(this.team, this.settings.game.number); Render.scene.add(this.ghost.root); }
       UI.setRaceHud(true, field.length, 'quali');
@@ -337,7 +340,8 @@ const Game = {
     setTimeout(() => {
       if (this.session !== q) return;
       if (this.state === 'paused') UI.hideScreens();
-      this.state = 'finished'; Input.gameActive = false; this.loop.paused = true;
+      this.state = 'finished'; Input.gameActive = false; this.loop.paused = !Net.active;
+      if (Net.session && Net.session.role === 'client') Net.session.qualiDone();
       AudioSys.setActive(false);
       UI.setHudVisible(false); UI.toggleMfd(false);
       UI.show('qualiResults', { noHistory: true });
@@ -534,6 +538,15 @@ const Game = {
       v.setCompound(this._startCompound(this.settings.game.compound || 'medium'), 75);
       this.mode = 'netclient';
       const view = this.netView = this.race = new NetView(cl, m, track, line, v, wx);
+      this.pitPlan = { compound: v.compound === 'medium' ? 'hard' : 'medium', repair: true };
+      if (m.rejoin) {
+        // Wiederverbunden: Auto dort weiterfahren lassen, wo es der Host zuletzt hatte
+        const r = m.rejoin, me = view.player, st = r.st;
+        v.placeAt(st.x, st.y + 0.05, st.z, 0); v.q.set(st.qx, st.qy, st.qz, st.qw); v.vel.set(st.vx, st.vy, st.vz); v.gear = Math.max(1, st.gear);
+        if (COMPOUND_ORDER[r.cpd]) v.setCompound(COMPOUND_ORDER[r.cpd], 85);
+        me.timing.startRace(0, v.trackS); me.timing.laps = Array.from({ length: r.laps }, () => ({ time: 0, valid: true })); me.timing.lap = r.laps + 1; me.timing.progress = r.progress; me.timing.prevS = null;
+        view.state = 'race'; view.greenAt = 0;
+      }
       this.applyAids();
       this._playerVisual();
       for (const e of view.entries) {
@@ -556,6 +569,20 @@ const Game = {
       this._go(`Mehrspieler · ${track.name} · ${S.laps} ${S.laps === 1 ? 'Runde' : 'Runden'}`);
       setTimeout(() => { if (this.race === view && view.state !== 'race') UI.hudMsg('Startaufstellung – warte auf die Ampel', 3000); }, 1200);
     } catch (err) { this._fail(err); }
+  },
+  /** Gast: Qualifying (allein auf der Strecke, Rangliste kommt vom Host) */
+  netStartClientQuali(cl, m) {
+    const S = m.settings, me = m.grid.find(g => g.kind === 'remote' && g.id === cl.id) || { name: this.settings.game.playerName, team: this.settings.game.team, number: this.settings.game.number };
+    this.netHost = null; this.seasonRound = false; this.careerRound = false; this.pendingGrid = null;
+    this._todOverride = S.tod || null;
+    const P = { era: S.era, trackId: TRACKS[S.track] ? S.track : 'ringpark', laps: S.laps, opponents: 0, strength: 1, weather: S.weatherType || 'dry', quali: true, qualiMin: S.quali, team: me.team, name: me.name, number: me.number, tod: S.tod };
+    const field = [{ driver: { name: me.name, nat: '', num: me.number, team: me.team, rating: 1 }, team: me.team, number: me.number, player: true }];
+    const standingsFn = (q) => {
+      const rows = (cl.qRows || []).map(r => ({ e: { number: (m.grid.find(g => g.name === r.name) || {}).number || 0 }, name: r.name, team: r.team, time: r.time || Infinity, player: r.id === cl.id }));
+      const mine = rows.find(r => r.player); if (mine) mine.time = Math.min(mine.time, q.playerBest); else rows.push({ e: { number: me.number }, name: me.name, team: me.team, time: q.playerBest, player: true });
+      return rows.sort((a, b) => a.time - b.time);
+    };
+    this.startQualifying({ P, field, qopts: { standingsFn } });
   },
   /** Nach dem Rennen: zurück in die Lobby (Host lädt alle ein, Client wartet) */
   netBackToLobby() {
@@ -763,8 +790,7 @@ const Game = {
     // Entprellung: ein Knopf, der gerade „Fortsetzen“ ausgelöst hat, darf nicht sofort wieder pausieren
     if (I.pressed('pause') && performance.now() - (this.resumeT || 0) > 400) { this.pause(I.sourceOf('pause') || 'Pause-Taste'); return; }
     if (I.pressed('pitRequest')) {
-      if (this.mode === 'netclient' || this.netHost) UI.hudMsg('Boxenstopps sind im Mehrspieler noch nicht verfügbar', 2200);
-      else if (this.mode === 'race' && this.race && this.race.track.pit) {
+      if (this.raceMode && this.race && this.race.track.pit) {
         const r = this.race.togglePit(this.race.player, this.pitPlan);
         UI.hudMsg(r === 'angefordert' ? `Box angefordert – ${COMPOUNDS[this.pitPlan.compound].name}${this.pitPlan.repair ? ' · Reparatur' : ''}` : r === 'abgebrochen' ? 'Box abgebrochen' : 'Boxenstopp läuft', 2200);
         AudioSys.radio();

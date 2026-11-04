@@ -100,6 +100,9 @@ Object.assign(UI, {
             h('p', 'Status: ', status)),
           h('div.card', h('h3', 'Freunde'), friends,
             h('div', { style: { display: 'flex', gap: '6px', marginTop: '10px', alignItems: 'center' } }, fName, fCode, addFriend)),
+          h('div.card', h('h3', 'Erweitert: eigener TURN-Server'),
+            h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Nur nötig, wenn Verbindungen über das Internet trotz Code scheitern (strenge Router, Mobilfunk, Firmennetz). Ein TURN-Server leitet die Daten weiter – Adresse z. B. turn:mein-server.de:3478.'),
+            (() => { const N = Game.settings.net = Game.settings.net || {}; const T = N.turn = N.turn || {}; const mk = (k, ph, type = 'text') => { const i = h('input', { type, placeholder: ph, value: T[k] || '', style: { width: '100%', padding: '6px', marginBottom: '4px' } }); i.addEventListener('change', () => { T[k] = i.value.trim(); Game.saveSettings(); }); return i; }; return h('div', mk('urls', 'turn:server:3478'), mk('username', 'Benutzer'), mk('credential', 'Passwort', 'password')); })()),
           h('div.actions', btn('Zurück', () => this.show('main', { noHistory: true }), 'ghost'))),
       ),
     );
@@ -123,6 +126,7 @@ Object.assign(UI, {
       opt('Strecke', chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), set.track, v => st('track', v)), TRACKS[set.track] ? TRACKS[set.track].name : (set.track + ' (fehlt bei dir!)')),
       opt('Epoche', chips(ERA_ORDER.map(id => ({ value: id, label: ERAS[id].name })), set.era, v => st('era', v)), eraOf(set.era).title),
       opt('Runden', toggle(lapsOpts.map(n => ({ value: n, label: String(n) })), set.laps, v => st('laps', v)), String(set.laps)),
+      opt('Qualifying', toggle([{ value: 0, label: 'Aus' }, { value: 3, label: '3 min' }, { value: 5, label: '5 min' }, { value: 10, label: '10 min' }], set.quali || 0, v => st('quali', v)), set.quali ? set.quali + ' min' : 'aus'),
       opt('KI-Gegner', toggle([0, 5, 9, 13, 19].map(n => ({ value: n, label: String(n) })), set.ai, v => st('ai', v)), String(set.ai)),
       opt('Wetter', chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), set.weather, v => st('weather', v)), (WEATHER_TYPES[set.weather] || {}).name || set.weather),
       opt('Tageszeit', toggle([['track', 'Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung']].map(([value, label]) => ({ value, label })), set.tod, v => st('tod', v)), set.tod),
@@ -172,5 +176,7 @@ Object.assign(UI, {
 
 // Lobby live aktualisieren; Einladungen und Freundschaftsanfragen anzeigen
 Events.on('net:lobby', () => { if (UI.current === 'lobby') { const a = document.activeElement, chat = a && a.placeholder === 'Nachricht …'; UI.show('lobby', { noHistory: true }); if (chat) { const i = document.querySelector('input[placeholder="Nachricht …"]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } } } });
+Events.on('net:qdone', () => { if (UI.current === 'qualiResults') UI.show('qualiResults', { noHistory: true }); });
+Events.on('net:reconnecting', () => UI.hudMsg('Verbindung zum Host verloren – verbinde neu …', 5000));
 Events.on('net:invite', (m) => { if (Game.state !== 'menu') { UI.toast(`${m.name} lädt dich in die Lobby APEX-${m.lobby} ein`, 6000); return; } UI.confirm(`${m.name} lädt dich in die Lobby APEX-${m.lobby} ein. Beitreten?`, async () => { const cl = new NetClient(); try { Net.session = cl; await cl.joinCode(m.lobby); UI.show('lobby', { noHistory: true }); } catch (e) { Net.session = null; UI.toast('Beitreten fehlgeschlagen: ' + e.message); } }); });
 Events.on('net:friendReq', (m) => { const code = normCode(m.code); if (NetProfile.get().friends.some(f => f.code === code)) return; UI.confirm(`${m.name} (APEX-${code}) möchte dich als Freund hinzufügen. Annehmen?`, () => { NetProfile.addFriend(m.name, code); if (UI.current === 'multi') UI.show('multi', { noHistory: true }); }); });

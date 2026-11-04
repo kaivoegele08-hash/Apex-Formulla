@@ -71,14 +71,15 @@ function calibrateLapFactor(track, line) {
  */
 class QualiSession extends PracticeSession {
   /** field = buildField(...)-Liste; opts: { line, minutes, strength, water, rng } */
-  constructor(track, field, { line, minutes = 10, strength = 1, water = 0, rng = Math.random } = {}) {
+  constructor(track, field, { line, minutes = 10, strength = 1, water = 0, rng = Math.random, remoteTime = null, standingsFn = null } = {}) {
     super(track);
     this.kind = 'quali';
     this.duration = minutes * 60; this.clock = 0; this.phase = 'running';   // running → last → done
     this.field = field;
     this.playerBest = Infinity; this.playerLaps = 0;
     const trackGrip = strength > 1 ? 1 + (strength - 1) * 0.6 : 1;
-    this.ai = field.filter(e => !e.player).map(e => {
+    this.remoteTime = remoteTime; this.standingsFn = standingsFn;   // Mehrspieler: Zeiten der Gäste (Host) bzw. Rangliste vom Host (Gast)
+    this.ai = field.filter(e => !e.player && !e.remote).map(e => {
       const prof = makeAIProfile(e.driver, strength, rng);
       const best = estimateAILap(track, line, prof, { water, trackGrip: trackGrip * (e.trackGrip || 1), rng });
       const first = best * (1 + 0.004 + rng() * 0.012);
@@ -117,7 +118,9 @@ class QualiSession extends PracticeSession {
   }
   /** Rangliste: [{ e, name, team, time, player }] – ohne Zeit hinten (Startreihenfolge des Feldes) */
   standings() {
+    if (this.standingsFn) return this.standingsFn(this);
     const rows = this.ai.map(a => ({ e: a.e, name: a.e.driver.name, team: a.e.team, time: a.shown, player: false, prof: a.prof }));
+    for (const e of this.field) if (e.remote) rows.push({ e, name: e.driver.name, team: e.team, time: this.remoteTime ? this.remoteTime(e.netId) : Infinity, player: false, remote: true });
     const pl = this.field.find(e => e.player);
     if (pl) rows.push({ e: pl, name: pl.driver.name, team: pl.team, time: this.playerBest, player: true });
     return rows.sort((a, b) => a.time - b.time);

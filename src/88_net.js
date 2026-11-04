@@ -12,7 +12,9 @@ const NET_MAX_PLAYERS = 8;
 const NET_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const NET_PREFIX = 'apexformula-v1-';
 const PEERJS_URL = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
-const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+const STUN_BASE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+/** ICE-Server: öffentliche STUN-Server, optional ein eigener TURN-Server (Einstellungen → Mehrspieler → Erweitert) */
+function iceServers() { const t = typeof Game !== 'undefined' && Game.settings && Game.settings.net && Game.settings.net.turn; return t && t.urls ? STUN_BASE.concat([{ urls: t.urls.split(/[\s,]+/).filter(Boolean), username: t.username || undefined, credential: t.credential || undefined }]) : STUN_BASE; }
 function netCode(n = 5) { let s = ''; const a = new Uint32Array(n); crypto.getRandomValues(a); for (const x of a) s += NET_ALPHA[x % NET_ALPHA.length]; return s; }
 function normCode(s) { return String(s || '').toUpperCase().replace(/^APEX-?/, '').replace(/[^A-Z0-9]/g, ''); }
 
@@ -48,7 +50,7 @@ class NetLink {
 class RtcLink extends NetLink {
   constructor({ lan = false } = {}) {
     super();
-    this.pc = new RTCPeerConnection({ iceServers: lan ? [] : STUN });
+    this.pc = new RTCPeerConnection({ iceServers: lan ? [] : iceServers() });
     this.rel = this.pc.createDataChannel('rel', { negotiated: true, id: 0 });
     this.fast = this.pc.createDataChannel('fast', { negotiated: true, id: 1, ordered: false, maxRetransmits: 0 });
     this.rel.binaryType = this.fast.binaryType = 'arraybuffer';
@@ -117,7 +119,7 @@ const NetBroker = {
   async open(id) {
     await this.load();
     return new Promise((res, rej) => {
-      const p = new window.Peer(id, Object.assign({ config: { iceServers: STUN } }, this.cfg()));
+      const p = new window.Peer(id, Object.assign({ config: { iceServers: iceServers() } }, this.cfg()));
       const t = setTimeout(() => { rej(new Error('Vermittlungsdienst antwortet nicht')); try { p.destroy(); } catch (e) { /* egal */ } }, 9000);
       p.on('open', () => { clearTimeout(t); res(p); });
       p.on('error', (e) => { clearTimeout(t); rej(new Error(e && e.type === 'unavailable-id' ? 'Code ist schon vergeben' : e && e.type === 'peer-unavailable' ? 'Lobby nicht gefunden' : 'Vermittlung: ' + ((e && e.type) || e))); });
@@ -129,7 +131,7 @@ const NetBroker = {
       const uid = netCode(8);
       const rel = peer.connect(id, { reliable: true, serialization: 'raw', metadata: Object.assign({ k: 'rel', uid }, meta) });
       const fast = peer.connect(id, { reliable: false, serialization: 'raw', metadata: Object.assign({ k: 'fast', uid }, meta) });
-      let n = 0; const t = setTimeout(() => rej(new Error('Keine Antwort von der Gegenseite')), 12000);
+      let n = 0; const t = setTimeout(() => rej(new Error('Keine direkte Verbindung möglich (Router/Firewall blockiert?) – probiere die LAN-Einladung, einen anderen Host oder einen eigenen TURN-Server unter „Erweitert“')), 12000);
       const up = () => { if (++n === 2) { clearTimeout(t); res(new PeerLink(rel, fast)); } };
       rel.on('open', up); fast.on('open', up);
       const fail = (e) => { clearTimeout(t); rej(new Error('Verbindung fehlgeschlagen: ' + ((e && e.type) || e))); };

@@ -348,6 +348,8 @@ Object.assign(UI, {
     return h('section.screen.solid',
       h('header', h('span.crumb', Game.seasonRound ? `Meisterschaft · Runde ${Game.season.round + 1}` : 'Qualifying'), h('h1', isFinite(q.playerBest) ? `Startplatz ${me}` : `Keine gültige Runde – Startplatz ${me}`), h('span', { style: { color: '#7d8898' } }, `${q.track.name} · Pole: ${st[0].name} ${fmtTime(pole)}`)),
       h('div.scroll', { style: { flex: '1' } }, tbl),
+      Net.active ? h('div.actions', Net.session.role === 'host' ? btn('Rennen für alle starten', () => Net.session.raceFromQuali(), 'primary', '▶') : h('p', { style: { color: '#ffb02e', fontWeight: 800 } }, 'Warte auf den Host – das Rennen startet für alle gleichzeitig …'),
+        Net.session.role === 'host' ? h('p', { style: { color: '#9aa3ad' } }, `Fertig: ${Net.session.qDone.size} von ${Net.session.players.length - 1} Mitspielern`) : null, btn('Mehrspieler verlassen', () => Game.netLeave(), 'ghost')) :
       h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Wiederholung', () => Game.openReplay('results')), btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
     );
   },

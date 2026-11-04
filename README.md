@@ -9,7 +9,8 @@ den kostenlosen öffentlichen PeerJS-Vermittler, ohne Internet/LAN per kopierbar
 WebRTC). Benutzername, Freundescode, Freundesliste mit Online-Status, Einladungen, Freundschaftsanfragen, Lobby-Chat,
 Host-Einstellungen (Strecke, Epoche, Runden, KI, Wetter, Tageszeit, Schaden, Safety Car). Jeder fährt sein Auto mit
 voller Physik lokal (30 Hz an den Host), der Host verteilt alle Autos (20 Hz) und die Rennübersicht (4 Hz).
-Noch nicht im Mehrspieler: Boxenstopps, Qualifying, Track-Limits-Strafen für Gäste.
+Boxenstopps (Autopilot auf dem PC des Gasts), Qualifying (alle gleichzeitig gegen die Uhr), Track Limits/Frühstart für Gäste,
+Wiederverbinden nach Verbindungsabbruch (90 s), optional eigener TURN-Server.
 
 **Neu: Karriere** – eigener Fahrer (Name, Nummer, Nation), mehrere Saisons über alle Strecken, Teams mit wechselnder
 Autostärke, Verträge mit Bedingungen, Fahrermarkt (KI wechselt, tritt zurück, Neulinge, Fahrerwechsel während der
@@ -117,6 +118,8 @@ node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, 
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
 node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
 node tests/browser/phase6_test.js                # Wiederholung, Reifenspuren, Nachbearbeitung, Detailstufen
+node tests/browser/multi2_test.js                # Mehrspieler: Qualifying, Startaufstellung, Box des Gasts, Strafe, Wiederverbinden
+node tests/browser/offline_test.js               # Start ohne Internet (alle Netzanfragen blockiert)
 node tests/browser/multi_test.js                 # Mehrspieler: 2 Fenster, LAN-Code, Lobby-Code (lokaler Vermittler), Freunde, Rennen
 node tests/browser/career_test.js                # Karriere: Start, Teamwahl, Rennen werten, Social Media, Saisonwechsel
 node tests/browser/mods_test.js                  # Mods: Laden, Menü, Fehler, Mod-Strecke fahren

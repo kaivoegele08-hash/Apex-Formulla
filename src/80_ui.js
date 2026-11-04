@@ -210,7 +210,11 @@ const UI = {
     if (Net.active && Game.raceMode) return h('section.screen', h('header', h('span.crumb', 'Mehrspieler'), h('h1', 'Menü (das Rennen läuft weiter)')),
       h('div.menu', btn('Weiterfahren', () => Game.resume(), 'primary', 'Esc'), Game.canReplay() ? btn('Wiederholung', () => Game.openReplay('pause')) : null, btn('Einstellungen', () => this.show('settings')), btn('Hilfe & Steuerung', () => this.show('help')),
         btn(Net.session.role === 'host' ? 'Rennen beenden (Lobby schließen)' : 'Rennen verlassen', () => this.confirm(Net.session.role === 'host' ? 'Rennen für alle beenden und die Lobby schließen?' : 'Rennen verlassen?', () => Game.netLeave()), 'ghost')),
-      h('p', { style: { marginTop: '18px', color: '#ffb02e' } }, 'Im Mehrspieler läuft das Rennen während des Menüs weiter – dein Auto bremst automatisch.'));
+      h('p', { style: { marginTop: '18px', color: '#ffb02e' } }, 'Im Mehrspieler läuft das Rennen während des Menüs weiter – dein Auto bremst automatisch.'),
+      Game.race && Game.race.track.pit && Game.pitPlan ? h('div.card', { style: { maxWidth: '460px', marginTop: '12px' } }, h('h3', 'Boxenstopp-Plan'),
+        chips(COMPOUND_ORDER.map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), Game.pitPlan.compound, v => { Game.pitPlan.compound = v; if (Game.race.player.pitPlan) Game.race.player.pitPlan.compound = v; }),
+        fieldRow('Schaden reparieren', toggle([{ value: true, label: 'Ja (+6,5 s)' }, { value: false, label: 'Nein' }], Game.pitPlan.repair, v => { Game.pitPlan.repair = v; })),
+        h('div.actions', btn(Game.race.player.pitPlan ? 'Box abbrechen' : 'Box anfordern (Taste B)', () => { Game.race.togglePit(Game.race.player, Game.pitPlan); this.show('pause', { noHistory: true }); }, 'small'))) : null);
     const S = Game.settings, race = Game.mode === 'race', quali = Game.mode === 'quali';
     const reason = Game.pauseReason || '';
     // Hinweis: Esc kam als Tastendruck, obwohl mit dem Lenkrad gefahren wurde → vermutlich Steam Input
@@ -267,7 +271,7 @@ const UI = {
         h('div.col',
           h('div.card', h('h3', 'Rennen & Regeln'),
             h('p', '• ', h('b', 'Start:'), ' Fünf rote Lichter gehen im Sekundentakt an; wenn alle erlöschen, geht es los. Bis dahin hält das Spiel dein Auto über die Kupplung – Gas geben zum Vorbereiten ist erlaubt (mit Traktionskontrolle Vollgas, ohne lieber dosiert).'),
-            h('p', '• ', h('b', 'Mehrspieler:'), ' Online-Lobby mit Code (APEX-XXXXX) oder ohne Internet per Einladungs-/Antwort-Code. Der Host-PC ist der Server; jeder fährt sein eigenes Auto ohne Verzögerung. Esc öffnet das Menü, das Rennen läuft dabei weiter. Boxenstopps und Qualifying gibt es im Mehrspieler noch nicht.'),
+            h('p', '• ', h('b', 'Mehrspieler:'), ' Online-Lobby mit Code (APEX-XXXXX) oder ohne Internet per Einladungs-/Antwort-Code. Der Host-PC ist der Server; jeder fährt sein eigenes Auto ohne Verzögerung. Esc öffnet das Menü, das Rennen läuft dabei weiter. Boxenstopp mit Taste B wie im Einzelspieler; reißt die Verbindung ab, verbindet das Spiel sich automatisch neu (90 s Zeit).'),
             h('p', '• ', h('b', 'Karriere:'), ' Teamziel und Vertragsbedingung stehen in der Übersicht. Kontakte, bei denen du auffährst, verschlechtern die Beziehung zum Gegner stark; faire Duelle und Lob in Social Media verbessern sie. Rivalen (unter −25) machen die Tür öfter zu und greifen härter an, Freunde (ab +25) fahren fairer.'),
             h('p', '• ', h('b', 'Epochen:'), ' 1990–2010 ohne ERS und DRS (Saugmotoren, lange Schaltzeiten, 1990 schwere Lenkung), 2014–2022 Hybrid mit DRS (Heckflügel öffnet in den Zonen nur bei < 1 s Abstand am Erkennungspunkt), 2026 aktive Aero und Überholmodus. Jede Epoche hat ihr eigenes Fahrerfeld; Bestzeiten werden getrennt gespeichert.'),
             h('p', '• ', h('b', 'Wiederholung:'), ' Im Pausemenü (letzte 20 s) und im Ergebnis (ganzes Rennen). Zeitleiste mit Ereignissen (grün = Überholmanöver, gelb = Kontakt, rot = Ausfall), Tempo ¼× bis 4×, alle Kameras plus Helikopter, automatische Regie. Am Lenkrad: Schaltwippen = Auto wechseln, Kamera-Knopf, Pause-Knopf = zurück.'),
