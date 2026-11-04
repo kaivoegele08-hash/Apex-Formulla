@@ -5,7 +5,7 @@
 // ============================================================================
 
 const APP_NAME = 'Apex Formula';
-const APP_VERSION = '0.8.0 – Karriere APP_VERSION = '0.7.0 – Epochen, Mods, Siegerehrung' Mehrspieler';
+const APP_VERSION = '0.8.0 – Karriere und Mehrspieler';
 const PHYS_HZ = 360;                 // fester Physik-Takt
 const PHYS_DT = 1 / PHYS_HZ;
 const DEG = Math.PI / 180;
