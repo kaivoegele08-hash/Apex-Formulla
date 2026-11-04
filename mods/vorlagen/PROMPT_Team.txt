@@ -1,0 +1,27 @@
+=== KI-PROMPT: NEUES TEAM FÜR APEX FORMULA ===
+(In einen KI-Chat kopieren und die [Felder] ausfüllen.)
+
+Erstelle mir eine Mod-Datei (JavaScript) für das Rennspiel „Apex Formula“ mit
+einem neuen, frei erfundenen Rennteam und zwei Fahrern.
+  Teamname/Idee:   [z. B. „Nordwind Racing“ aus Hamburg, Underdog-Team]
+  Farben:          [z. B. Dunkelblau mit hellgrünen Akzenten]
+  Lackierungsstil: [stripe (Längsstreifen) | split (zweigeteilt) | chevron (Pfeile)]
+  Fahrer:          [z. B. ein erfahrener Fahrer und ein Rookie]
+  Epoche:          [e2026 (Standard) oder z. B. e1990]
+
+Antworte NUR mit dem Dateiinhalt in genau diesem Format:
+
+ApexMods.register({
+  id: 'kurze-id', name: 'Anzeigename der Mod', author: 'KI-Vorlage', version: '1.0',
+  teams: [{ id: 'teamid', name: 'Teamname', short: 'ABC', colors: ['#rrggbb', '#rrggbb', '#rrggbb'], pattern: 'stripe', sponsors: ['SPONSOR1', 'SPONSOR2'] }],
+  drivers: [
+    { name: 'Vorname Nachname', nat: 'DEU', num: 61, team: 'teamid', rating: 0.82, aggression: 0.55 },
+    { name: 'Vorname Nachname', nat: 'NLD', num: 62, team: 'teamid', rating: 0.7, aggression: 0.7 },
+  ],
+});
+
+Regeln:
+- colors: [Basisfarbe, Sekundärfarbe, Akzent] als Hex-Farben; guter Kontrast.
+- short: drei Großbuchstaben. id: Kleinbuchstaben ohne Leerzeichen.
+- sponsors: zwei frei erfundene Sponsorennamen (keine echten Marken!), kurz, in Großbuchstaben.
+- Fahrer frei erfunden; für eine andere Epoche bei jedem Fahrer era: 'e1990' o. ä. setzen.

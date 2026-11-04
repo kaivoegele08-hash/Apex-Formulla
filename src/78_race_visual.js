@@ -46,6 +46,7 @@ function setCarLod(vis, dist, shadows, k = (Render.quality && Render.quality.car
   vis.sw.group.visible = lvl === 0;
   for (const o of vis.lodFine) o.visible = lvl === 0;
   for (const o of vis.lodMid) o.visible = lvl < 2;
+  if (vis.haloMesh && !vis.haloOn) vis.haloMesh.visible = false;
   vis.setShadows(shadows && lvl === 0);
 }
 

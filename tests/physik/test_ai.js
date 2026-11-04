@@ -1,3 +1,4 @@
+if (typeof process !== 'undefined' && process.env.ERA) applyEra(process.env.ERA);
 // KI allein auf der Strecke: Rundenzeit, Abflüge, Einschläge je Fähigkeitsstufe
 const h = PHYS_DT;
 const T = new TrackModel(TRACKS[(typeof process !== 'undefined' && process.env.TRACK) || 'ringpark']);

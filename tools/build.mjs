@@ -5,7 +5,7 @@
 //    node tools/build.mjs            → dist/apex-formula.html
 //    node tools/build.mjs --zip      → zusätzlich dist/apex-formula.zip
 // ============================================================================
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, statSync, rmSync, cpSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +21,9 @@ const html = parts.map(f => readFileSync(join(src, f), 'utf8')).join('');
 mkdirSync(dist, { recursive: true });
 const out = join(dist, 'apex-formula.html');
 writeFileSync(out, html);
+// Mod-Ordner neben die HTML-Datei kopieren (Spiel lädt mods/mods.js beim Start)
+const modsSrc = join(root, 'mods'), modsDst = join(dist, 'mods');
+if (existsSync(modsSrc)) { rmSync(modsDst, { recursive: true, force: true }); cpSync(modsSrc, modsDst, { recursive: true }); }
 console.log(`gebaut: ${out} (${(statSync(out).size / 1024).toFixed(0)} KB, ${html.split('\n').length} Zeilen, ${parts.length} Teile)`);
 
 if (process.argv.includes('--zip')) {
@@ -32,6 +35,8 @@ if (process.argv.includes('--zip')) {
   rmSync(zip, { force: true });
   try {
     execFileSync('zip', ['-q', '-j', '-X', zip, ...files]);
+    // mods/ mit Unterordnern (relativ zu dist)
+    if (existsSync(modsDst)) execFileSync('zip', ['-q', '-r', '-X', zip, 'mods'], { cwd: dist });
     console.log(`gepackt: ${zip} (${(statSync(zip).size / 1024).toFixed(0)} KB, ${files.length} Dateien)`);
   } catch (e) {
     console.error('ZIP fehlgeschlagen (ist „zip“ installiert?):', e.message);

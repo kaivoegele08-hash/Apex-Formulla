@@ -1,0 +1,19 @@
+=== KI-PROMPT: MOD-FEHLER BEHEBEN ===
+(Wenn das Spiel im Menü „Mods“ einen Fehler anzeigt: diesen Text, die Fehlermeldung
+ und den kompletten Inhalt deiner Mod-Datei in einen KI-Chat kopieren.)
+
+Meine Mod-Datei für das Rennspiel „Apex Formula“ lädt nicht. Das Spiel meldet:
+  [Fehlermeldung aus dem Menü „Mods“ hier einfügen]
+
+Hier ist die Datei:
+  [kompletten Dateiinhalt hier einfügen]
+
+Bitte korrigiere die Datei und gib NUR den korrigierten Dateiinhalt aus.
+Wichtige Regeln des Formats:
+- Die Datei ruft genau einmal ApexMods.register({ id, name, tracks?, teams?, drivers?, eras? }) auf.
+- Strecken mit layout.corners: [[x, z, radius(, breite)], ...] in Fahrtrichtung (geschlossen, Meter).
+  Für jede Ecke muss radius × tan(Richtungsänderung/2) kleiner als die halbe Länge der kürzeren
+  angrenzenden Geraden sein – die Meldung „Radius … zu groß“ nennt die Ecke und den maximalen Radius.
+- Streckenlänge 1,2–9 km; ids nur aus Kleinbuchstaben, Ziffern, - und _.
+- Fahrer brauchen name und ein vorhandenes team; Teams brauchen id, name und colors (mind. 2 Farben).
+- Epochen brauchen eine id; Werte unter spec überschreiben das Standardauto.

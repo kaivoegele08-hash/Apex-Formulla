@@ -192,7 +192,7 @@ class Vehicle {
     this.soc = 0.8 * spec.ers.battMJ * 1e6; this.ersMode = 'balanced';
     this.ersPower = 0; this.kTorque = 0; this.harvesting = false;
     this.overtakeAvailable = false; this.overtakeActive = false;
-    this.aeroFlap = 0; this.aeroWant = 0; this.aeroManual = false; this.aeroAuto = true; this.inAeroZone = false;
+    this.drsOK = true; this.aeroFlap = 0; this.aeroWant = 0; this.aeroManual = false; this.aeroAuto = true; this.inAeroZone = false;
     this.pitLimiter = false;
     this.rideF = this.refRideF; this.rideR = this.refRideR;
     this.downforce = 0; this.drag = 0; this.plankForce = 0; this.scrapeIntensity = 0; this.wingScrape = 0;
@@ -362,7 +362,9 @@ class Vehicle {
 
     // Aktive Aerodynamik: Geradenmodus nur in Zonen, Zurückklappen beim Bremsen
     let want = this.aeroWant;
-    if (!this.inAeroZone || brk > 0.08) want = 0;
+    // Epochen: 'active' (beide Flügel, jede Zone), 'drs' (nur Heckflügel, nur mit Freigabe), 'none'
+    const aMode = spec.aero.mode || 'active';
+    if (aMode === 'none' || !this.inAeroZone || brk > 0.08 || (aMode === 'drs' && !this.drsOK)) want = 0;
     else if (this.aeroAuto) {
       if (thr > 0.9 && this.vLong > 150 / KMH && inp.throttle > 0.95) want = 1;
     } else want = this.aeroManual ? 1 : 0;
@@ -378,11 +380,12 @@ class Vehicle {
     if (this.aids.autoShift && this.shiftTimer <= 0 && this.gear === 0 && inp.throttle > 0.1) this.requestShift(1);
     if (this.aids.autoShift && this.shiftTimer <= 0 && this.gear >= 1) {
       const rpm = this.engOmega / RPM2RAD;
-      if (this.gear < this.numGears && rpm > 14450 && this.clutchLocked && this.time - this.lastShiftTime > 0.25) this.requestShift(1);
+      const LIM = this.spec.engine.limitRpm;
+      if (this.gear < this.numGears && rpm > LIM * 0.963 && this.clutchLocked && this.time - this.lastShiftTime > 0.25) this.requestShift(1);
       else if (this.gear > 1 && this.time - this.lastShiftTime > 0.2) {
         const wAvg = (W[2].omega + W[3].omega) * 0.5;
         const rpmDown = Math.abs(this.ratioOf(this.gear - 1) * wAvg) / RPM2RAD;
-        const thresh = brk > 0.1 ? 13800 : (thr < 0.2 ? 11500 : 10500);
+        const thresh = LIM * (brk > 0.1 ? 0.92 : (thr < 0.2 ? 0.767 : 0.70));
         if (rpmDown < thresh) this.requestShift(-1);
       }
     }
@@ -475,7 +478,7 @@ class Vehicle {
     const load = w.Fz / (ty.fz0 * w.width / 0.34);
     let mu = c.mu * clamp(1 - ty.loadSens * (load - 1), 0.72, 1.12);
     mu *= tyre.gripT * tyre.wearFactor() * (1 - 0.05 * tyre.flat);
-    mu *= lerp(sd.grip, sd.wetGrip, this.water);
+    mu *= lerp(sd.grip, sd.wetGrip, this.water) * (ty.muScale || 1);
     mu *= 1 - c.wetLoss * this.water - c.dryPenalty * (1 - this.water);
     const camDeg = w.camber * RAD2DEG;
     const camF = 1 + 0.012 * clamp(-camDeg, 0, 3.2) - 0.02 * Math.max(0, -camDeg - 3.2) ** 2 - 0.02 * Math.max(0, camDeg);
@@ -633,9 +636,10 @@ class Vehicle {
         // Anfahren: Kupplung regelt die Motordrehzahl auf einen gaspedalabhängigen Zielwert
         // (Vorsteuerung: aktuelles Motormoment übertragen + P-Anteil auf die Zieldrehzahl, kein Windup)
         if (inp.throttle > 0.03) {
-          const rpm = this.engOmega / RPM2RAD, target = 6500 + 3600 * inp.throttle;
+          // Zieldrehzahl relativ zum Begrenzer (Standardauto 15.000: 6.450…10.050 U/min)
+          const LIM = this.spec.engine.limitRpm, rpm = this.engOmega / RPM2RAD, target = LIM * (0.43 + 0.24 * inp.throttle);
           const ff = Math.max(0, this.engTorque) / gb.clutchMaxNm;
-          const want = clamp(ff + (rpm - target) / 3200, 0, 1);
+          const want = clamp(ff + (rpm - target) / (LIM * 0.213), 0, 1);
           this.launchC += (want - this.launchC) * clamp(h * 30, 0, 1);
         } else this.launchC = Math.max(0, this.launchC - h * 10);
         cmd = this.launchC; instant = true;

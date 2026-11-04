@@ -4,6 +4,18 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
+**Neu: Mods** – Ordner `mods/` neben der HTML-Datei: Strecken (aus Eckpunkten + Kurvenradien, Rest automatisch),
+Teams, Fahrer und eigene Autos/Epochen. Laden über `mods/mods.js` oder (Chrome/Edge) Ordnerauswahl im Menü „Mods“.
+Anleitung `mods/README.txt`, KI-Prompt-Vorlagen in `mods/vorlagen/`.
+
+**Neu: Hauptmenü & Siegerehrung** – Kachel-Hub mit Fahrerprofil; Podest mit Fahrerfiguren in Teamfarben,
+Pokalen, Konfetti und Sektdusche nach dem Rennen (abschaltbar).
+
+**Neu: Epochen** – acht Fahrzeug-Generationen (1990, 2000, 2010, 2014, 2017, 2020, 2022, 2026) mit eigener Physik
+(Motor/Drehzahl, Getriebe, Masse, Radstand, Aero, Reifen, ERS, DRS bzw. aktive Aero), gemessenen KI-Grenzen,
+eigenem Motorklang (V12/V10/V8/V6), Optik (Halo, Radstand, Breite) und frei erfundenem Fahrerfeld je Epoche.
+Bestzeiten und Ghosts werden je Epoche getrennt gespeichert. Die Qualifying-Schätzung kalibriert sich je Epoche/Strecke selbst.
+
 **Stand: Phase 6**
 - Wiederholung: alle Autos + Safety Car mit 15 Hz aufgezeichnet (≈ 0,8 MB je Minute, Ringpuffer 40 min), Wiedergabe mit Zeitleiste, Ereignismarken (Überholen, Kontakt, Ausfall), Tempo ¼×–4×, alle Kameras + Helikopter, automatische Regie, Positionsliste zum Anklicken
 - Grafik: Reifenspuren beim Blockieren/Rutschen, Nachbearbeitung (dezentes Bloom, Vignette, Farbkorrektur, MSAA im Renderziel), abschaltbar
@@ -45,6 +57,8 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `00_head.html` | HTML, CSS, Importmap |
 | `10_core.js` | Mathe, Ereignisse, Speichern |
 | `20_data.js` | Teams, Fahrzeugdaten, Strecken (fiktiv) |
+| `22_eras.js` | Epochen: Fahrzeugdaten, KI-Grenzen, Fahrerfelder, applyEra() |
+| `24_mods.js` | Mods: Strecke aus Eckpunkten, Standardwerte, Prüfung, Übernahme |
 | `30_track.js` | Streckenmodell (Spline, Höhen, Oberflächen) |
 | `40_physics.js` | Fahrzeugphysik, 360 Hz, Reifen, Antrieb, Aero, FFB-Moment |
 | `45_ai.js` | KI: Ideallinie (minimale Krümmung), Tempoprofil, Fahrer-Regler, Verkehr |
@@ -57,6 +71,8 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `58_engine_model.js` | Physikalisches Motorklang-Modell (AudioWorklet) |
 | `60_audio.js` | Klangsynthese |
 | `70`–`78` | Rendering, Strecke, Auto, Garage, Ghost, TV-Kameras |
+| `79_podium.js` | Fahrerfiguren, Siegerehrung |
+| `84_mods_ui.js` | Mod-Ordnerauswahl, Menü „Mods“ |
 | `80_ui.js` | Menüs, HUD, Einstellungen |
 | `82_ui_race.js` | Rennvorbereitung, Ergebnis, Setup, Telemetrie, Renn-HUD |
 | `90_game.js` | Ablaufsteuerung |
@@ -73,6 +89,7 @@ tools/run-pure.sh tests/physik/test_sc.js        # Safety Car und VSC: Kolonne, 
 tools/run-pure.sh tests/physik/test_weather.js   # Regenrennen: Nässe, Reifenwechsel der KI
 tools/run-pure.sh tests/physik/test_season.js    # Qualifying-Schätzung, Meisterschaftswertung
 tools/run-pure.sh tests/physik/test_replay.js    # Wiederholung: Genauigkeit, Speicher, Ringpuffer, Regie
+tools/run-pure.sh tests/physik/test_mods.js      # Mods: Strecke aus Eckpunkten, Teams/Fahrer, Auto-Epoche, KI-Runde
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
 node tests/browser/audio_test.js                 # Motorklang-Worklet
@@ -82,6 +99,9 @@ node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, 
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
 node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
 node tests/browser/phase6_test.js                # Wiederholung, Reifenspuren, Nachbearbeitung, Detailstufen
+node tests/browser/mods_test.js                  # Mods: Laden, Menü, Fehler, Mod-Strecke fahren
+node tests/browser/era_test.js                   # Epochen: Auswahl, Fahrzeugdaten, Optik, HUD, Rennen
+ERA=e1990 tools/run-pure.sh tests/physik/test_ai.js   # KI-Runde mit einer bestimmten Epoche
 node tests/audio/test_engine.js                  # Motorklang offline + WAV-Proben
 node tests/browser/ui_test.js
 node tests/browser/smoke_test.js

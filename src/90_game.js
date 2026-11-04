@@ -17,8 +17,8 @@ const DEFAULT_SETTINGS = {
     pad: { map: DEFAULT_PAD, deadzone: 0.08, linearity: 1.6, speedSteer: 0.32, triggerGamma: 1.0 },
     kbSteerRate: 2.6, kbSteerReturn: 4.5, kbSpeedSteer: 0.22, rumble: 0.8,
   },
-  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark', weather: 'dry', timeOfDay: 'track' },
-  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full', safetyCar: true, mandatory: 'auto', quali: false, qualiMin: 10 },
+  game: { team: 'aurora', number: 77, compound: 'medium', hud: true, autoPause: true, ghost: true, playerName: 'Du', track: 'ringpark', weather: 'dry', timeOfDay: 'track', era: 'e2026' },
+  race: { laps: 5, opponents: 19, strength: 1.0, grid: 'random', playerGrid: 'back', damage: 'full', safetyCar: true, mandatory: 'auto', quali: false, qualiMin: 10, podium: true },
   ffb: { enabled: false, strength: 0.7, invert: false, damper: 0.15, road: 0.5, vibration: 0.6 },
 };
 
@@ -35,6 +35,10 @@ const Game = {
     Save.init();
     this.settings = deepMerge(DEFAULT_SETTINGS, Save.get('settings', {}));
     this.season = Save.get('season', null);
+    // Mods aus mods/mods.js (vor dem Modul geladen) übernehmen, danach die gewählte Epoche aktivieren
+    try { applyMods((window.ApexMods && window.ApexMods.list) || []); } catch (e) { console.warn('[Mods]', e); }
+    applyEra(this.settings.game.era || 'e2026');
+    ModFolder.autoload().then(rep => { if (rep && rep.length) UI.toast(`Mods aus dem gespeicherten Ordner: ${rep.filter(r => r.ok).length} geladen`); }).catch(() => { });
     Input.init(this.settings.input);
     FFB.init(this.settings.ffb);
     Events.on('ffb:changed', () => this.saveSettings());
@@ -75,12 +79,19 @@ const Game = {
   },
 
   saveSettings() { Save.set('settings', this.settings); },
+  /** Epoche für die nächste Sitzung aktivieren (Fahrzeugdaten, KI-Grenzen, Fahrerfeld, Motorklang) */
+  _useEra(id) {
+    if (applyEra(id || 'e2026')) for (const k in this.lines) this.lines[k].profiles.clear();
+    if (AudioSys.engine && AudioSys.engine.setCylinders) AudioSys.engine.setCylinders(CAR_SPEC.cylinders || 6);
+  },
+  /** Auswahl im Menü: sofort umschalten, damit Garage und Fahrerliste passen */
+  setEra(id) { this.settings.game.era = id; this.saveSettings(); this._useEra(id); this.refreshGarageCar(); },
   // ---------------------------------------------------------------------------
   //  Meisterschaft
   // ---------------------------------------------------------------------------
   newSeason(opts) {
     const G = this.settings.game;
-    this.season = Season.create(Object.assign({ team: G.team, playerName: G.playerName || 'Du', number: G.number, strength: this.settings.race.strength }, opts));
+    this.season = Season.create(Object.assign({ team: G.team, playerName: G.playerName || 'Du', number: G.number, strength: this.settings.race.strength, era: G.era || 'e2026' }, opts));
     Save.set('season', this.season);
   },
   endSeason() { this.season = null; this.seasonRound = false; Save.set('season', null); },
@@ -175,6 +186,7 @@ const Game = {
       if (this.scVis) sc.remove(this.scVis.root);
     }
     this.scVis = null;
+    if (this.podium) { this.podium.dispose(); this.podium = null; }
     this.idealLine = null;
     this.vehicle = null; this.carVis = null; this.session = null; this.race = null; this.raceVis = []; this.ghost = null; this.raceRec = null;
     this.resultsShown = false; this.playerDoneT = null; this.replay = null; this.rp = null; UI.showReplay && UI.showReplay(false);
@@ -208,6 +220,7 @@ const Game = {
   async startTestDrive() {
     await this._begin('Strecke wird aufgebaut …');
     try {
+      this._useEra(this.settings.game.era);
       const track = await this._prepareTrack(this.trackId);
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
       await nextFrame();
@@ -231,9 +244,9 @@ const Game = {
   /** Rennen-Parameter: Schnelles Rennen aus den Einstellungen, in der Meisterschaft aus der Saison */
   raceParams() {
     const R = this.settings.race, G = this.settings.game, S = this.season && this.seasonRound ? this.season : null;
-    if (!S) return { trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
+    if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
     const trackId = S.tracks[S.round];
-    return { trackId, laps: Season.lapsFor(S, this.getTrackModel(trackId)), opponents: 19, strength: S.strength, weather: S.weather, quali: S.quali, qualiMin: S.qualiMin, team: S.team, name: S.playerName || 'Du', number: S.number, season: true };
+    return { era: S.era || 'e2026', trackId, laps: Season.lapsFor(S, this.getTrackModel(trackId)), opponents: 19, strength: S.strength, weather: S.weather, quali: S.quali, qualiMin: S.qualiMin, team: S.team, name: S.playerName || 'Du', number: S.number, season: true };
   },
   _field(P) { const R = this.settings.race; return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
   /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
@@ -244,6 +257,7 @@ const Game = {
     await this._begin('Qualifying wird vorbereitet …');
     try {
       const P = this.raceParams();
+      this._useEra(P.era);
       this.settings.game.track = P.trackId;
       const track = await this._prepareTrack(P.trackId);
       $('bootMsg').textContent = 'Fahrzeug wird vorbereitet …';
@@ -285,6 +299,7 @@ const Game = {
     await this._begin('Startaufstellung wird vorbereitet …');
     try {
       const P = this.raceParams();
+      this._useEra(P.era);
       this.settings.game.track = P.trackId;
       const track = await this._prepareTrack(P.trackId);
       $('bootMsg').textContent = 'Ideallinie und Gegner werden berechnet …';
@@ -367,6 +382,7 @@ const Game = {
       if (this.state === 'driving') { this.state = 'finished'; Input.gameActive = false; }
       this.setCamera('tv');
       UI.setHudVisible(false); UI.toggleMfd(false);
+      if (this.settings.race.podium !== false && this.openPodium()) return;
       UI.show('results', { noHistory: true });
     }, 5000);
   },
@@ -425,6 +441,32 @@ const Game = {
     this._teardown();
     UI.prev = [];
     UI.show('main', { noHistory: true });
+  },
+
+  // ---------------------------------------------------------------------------
+  //  Siegerehrung
+  // ---------------------------------------------------------------------------
+  /** Podest mit den ersten Drei des Rennens; false, wenn (noch) nicht drei Fahrer gewertet sind */
+  openPodium() {
+    const race = this.race; if (!race || this.state === 'podium') return false;
+    const top = race.classification().filter(r => !r.retired).slice(0, 3);
+    if (top.length < 3) return false;
+    const list = top.map(r => ({ team: TEAMS.find(t => t.id === r.team) || TEAMS[0], number: r.number, name: r.e.player ? (this.settings.game.playerName || 'Du') : r.name, player: r.e.player }));
+    this.podium = new PodiumScene(Render.renderer, list, { track: race.track.name });
+    this.podiumPrev = { state: this.state, paused: this.loop.paused };
+    this.state = 'podium'; this.loop.paused = true; Input.gameActive = false;
+    AudioSys.setActive(false);
+    UI.setHudVisible(false); UI.toggleMfd(false);
+    UI.show('podium', { noHistory: true, list });
+    for (let k = 0; k < 6; k++) setTimeout(() => AudioSys._burst && AudioSys.ready && AudioSys._burst(AudioSys.bus.ambient, { dur: 0.9, freq: 900 + k * 120, q: 0.4, gain: 0.12 }), 400 + k * 700);
+    return true;
+  },
+  closePodium() {
+    if (!this.podium) return;
+    this.podium.dispose(); this.podium = null;
+    const p = this.podiumPrev || { state: 'finished', paused: false };
+    this.state = p.state === 'podium' || p.state === 'driving' ? 'finished' : p.state; this.loop.paused = p.paused; this.loop.acc = 0;
+    UI.show('results', { noHistory: true });
   },
 
   // ---------------------------------------------------------------------------
@@ -574,6 +616,8 @@ const Game = {
     if (this.state === 'driving' && v) {
       if (!autoDrive) { const st = Input.state, inp = v.input; inp.steer = st.steer; inp.throttle = st.throttle; inp.brake = st.brake; inp.clutch = st.clutch; inp.steerSource = st.steerSource; }
       this._actions();
+    } else if (this.state === 'podium') {
+      if (Input.pressed('pause')) this.closePodium();
     } else if (this.state === 'replay') {
       if (Input.pressed('pause')) this.closeReplay();
       else if (Input.pressed('camera')) this.replayCam();
@@ -602,14 +646,17 @@ const Game = {
     }
     if (I.pressed('shiftUp')) v.requestShift(1);
     if (I.pressed('shiftDown')) v.requestShift(-1);
-    if (I.pressed('overtake')) {
+    if (I.pressed('overtake') && !v.spec.ers.overtake) UI.hudMsg(v.spec.aero.mode === 'drs' ? 'DRS öffnet automatisch in den Zonen (oder Aero-Taste)' : 'In dieser Epoche gibt es keinen Überholmodus');
+    else if (I.pressed('overtake')) {
       if (v.overtakeActive) { v.overtakeActive = false; UI.hudMsg('Überholmodus aus'); }
       else if (v.overtakeAvailable) { v.overtakeActive = true; v.overtakeAvailable = false; UI.hudMsg('Überholmodus aktiv'); AudioSys.beep(1500, 0.06, 0.18); }
       else UI.hudMsg('Überholmodus nicht verfügbar');
     }
     if (I.pressed('aero')) {
       if (v.aeroAuto) UI.hudMsg('Aero automatisch (Fahrhilfen)');
-      else if (v.inAeroZone) { v.aeroManual = !v.aeroManual; UI.hudMsg(v.aeroManual ? 'Geradenmodus' : 'Kurvenmodus'); }
+      else if (v.spec.aero.mode === 'none') UI.hudMsg('Keine verstellbare Aerodynamik in dieser Epoche');
+      else if (v.spec.aero.mode === 'drs' && !v.drsOK) UI.hudMsg('DRS nicht freigegeben (nur < 1 s hinter dem Vordermann)');
+      else if (v.inAeroZone) { v.aeroManual = !v.aeroManual; UI.hudMsg(v.spec.aero.mode === 'drs' ? (v.aeroManual ? 'DRS offen' : 'DRS zu') : (v.aeroManual ? 'Geradenmodus' : 'Kurvenmodus')); }
       else UI.hudMsg('Geradenmodus nur in Aero-Zonen');
     }
     if (I.pressed('pitLimiter')) { v.pitLimiter = !v.pitLimiter; UI.hudMsg(v.pitLimiter ? 'Begrenzer 80 km/h AN' : 'Begrenzer AUS'); AudioSys.beep(900, 0.05, 0.15); }
@@ -658,6 +705,7 @@ const Game = {
     UI.frame(dt);
     const G = this.settings.graphics;
     if (this.state === 'replay' && this.rp) { this._replayFrame(dt); }
+    else if (this.state === 'podium' && this.podium) { this.podium.update(dt, Render.width / Render.height); Render.render(this.podium.scene, this.podium.camera); }
     else if (this.state === 'menu' || this.state === 'boot') {
       if (this.garage) { this.garage.update(dt, Render.width / Render.height); Render.render(this.garage.scene, this.garage.camera); }
     } else if ((this.state === 'driving' || this.state === 'paused' || this.state === 'finished') && this.vehicle) {
@@ -832,7 +880,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { ModFolder, applyMods, applyEra, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);

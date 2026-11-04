@@ -185,7 +185,7 @@ class EngineVoice {
         const urls = ['data:application/javascript;charset=utf-8,' + encodeURIComponent(code)];
         try { urls.push(URL.createObjectURL(new Blob([code], { type: 'application/javascript' }))); } catch (e) { /* ignorieren */ }
         for (const url of urls) {
-          try { await c.audioWorklet.addModule(url); n = new AudioWorkletNode(c, 'apex-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] }); break; }
+          try { await c.audioWorklet.addModule(url); n = new AudioWorkletNode(c, 'apex-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { cfg: engineCfgFor(CAR_SPEC.cylinders || 6) } }); this.cylCfg = CAR_SPEC.cylinders || 6; break; }
           catch (e) { console.info('[Audio] Worklet-Variante fehlgeschlagen:', url.slice(0, 5), e && e.message); }
         }
         for (const url of urls) if (url.startsWith('blob:')) URL.revokeObjectURL(url);
@@ -195,7 +195,7 @@ class EngineVoice {
         this.pRpm = n.parameters.get('rpm'); this.pIgn = n.parameters.get('ignition');
       } else if (c.createScriptProcessor) {
         // Notlösung ohne Worklet: gleiches Modell im Hauptthread (kann bei Last knacksen)
-        const m = new EngineModel(c.sampleRate, ENGINE_V6), st = { rpm: 4000, ign: 0.3, r0: 4000, i0: 0.3 };
+        const m = new EngineModel(c.sampleRate, engineCfgFor(CAR_SPEC.cylinders || 6)), st = { rpm: 4000, ign: 0.3, r0: 4000, i0: 0.3 };
         n = c.createScriptProcessor(1024, 0, 2);
         n.onaudioprocess = (e) => { const a = e.outputBuffer.getChannelData(0), b = e.outputBuffer.getChannelData(1); m.render(a, b, a.length, st.r0, st.rpm, st.i0, st.ign); st.r0 = st.rpm; st.i0 = st.ign; };
         const prm = (k) => ({ setTargetAtTime: (v) => { st[k] = v; }, get value() { return st[k]; } });
@@ -222,6 +222,16 @@ class EngineVoice {
       console.warn('[Audio] Motormodell nicht verfügbar – Oszillator-Synthese', e);
     } finally { this.modelLoading = false; }
   }
+  /** Epochenwechsel: Motormodell mit anderer Zylinderzahl neu anlegen (Worklet-Modul ist schon geladen) */
+  setCylinders(nc) {
+    if (!this.model || this.cylCfg === nc || this.modelKind !== 'worklet') return;
+    try {
+      const n = new AudioWorkletNode(this.c, 'apex-engine', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { cfg: engineCfgFor(nc) } });
+      const old = this.model; old.disconnect(); try { old.port.postMessage('stop'); } catch (e) { /* egal */ }
+      n.connect(this.mLevel); this.model = n; this.cylCfg = nc;
+      this.pRpm = n.parameters.get('rpm'); this.pIgn = n.parameters.get('ignition');
+    } catch (e) { console.warn('[Audio] Zylinderwechsel fehlgeschlagen', e); }
+  }
   setModel(on) {
     if (on && !this.model) { this.initModel(); return; }
     this.useModel = !!(on && this.model && !this.modelDead);
@@ -239,10 +249,11 @@ class EngineVoice {
     const c = this.c, t = c.currentTime, T = 0.012;
     const rpm = car.rpm;
     this.jitter = this.jitter * 0.9 + (Math.random() - 0.5) * 0.1;
-    const fire = Math.max(40, rpm / 20) * (1 + this.jitter * 0.004);
+    const cyl = car.spec && car.spec.cylinders || 6;
+    const fire = Math.max(40, rpm * cyl / 120) * (1 + this.jitter * 0.004);
     const load = clamp(Math.max(car.throttleEff || 0, car.iceTorque / 340), 0, 1);
     const over = (car.throttleEff || 0) < 0.05 && rpm > 6000;
-    const rn = clamp(rpm / 15000, 0, 1.1);
+    const rn = clamp(rpm / CAR_SPEC.engine.limitRpm, 0, 1.1);
     const M = this.useModel;
     if (this.model) {
       // Zündstärke: Last (Gaspedal/Moment), im Schiebebetrieb kaum, beim Begrenzer Zündunterbrechung
@@ -271,9 +282,10 @@ class EngineVoice {
     this.intG.gain.setTargetAtTime(inter * 1.05, t, 0.05);
     // Turbo (mit Ladedruck), Abblasen beim Gaswegnehmen
     this.turbo.frequency.setTargetAtTime(1600 + car.boost * 5200 + rpm * 0.08, t, 0.03);
-    this.turboG.gain.setTargetAtTime(car.boost * 0.018 * (0.5 + 0.5 * rn) * (1 - inter * 0.4), t, 0.05);
+    const turbo = car.spec && car.spec.engine.turboTau[0] > 0.1 ? 1 : 0;
+    this.turboG.gain.setTargetAtTime(turbo * car.boost * 0.018 * (0.5 + 0.5 * rn) * (1 - inter * 0.4), t, 0.05);
     // MGU-K: Surren proportional zur elektrischen Leistung
-    const pk = Math.abs(car.ersPower || 0) / 350000;
+    const pk = Math.abs(car.ersPower || 0) / Math.max(1, (car.spec ? car.spec.ers.maxKW : 350) * 1000);
     const sp = Math.abs(car.vLong);
     this.mguk.frequency.setTargetAtTime(380 + sp * 38, t, 0.03); this.mguk2.frequency.setTargetAtTime(760 + sp * 76.5, t, 0.03);
     this.mgukG.gain.setTargetAtTime(clamp(pk, 0, 1) * 0.016 * (car.harvesting ? 1.3 : 1), t, 0.05);

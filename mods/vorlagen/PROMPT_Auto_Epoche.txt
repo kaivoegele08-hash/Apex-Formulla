@@ -1,0 +1,46 @@
+=== KI-PROMPT: EIGENES AUTO / EIGENE EPOCHE FÜR APEX FORMULA ===
+(In einen KI-Chat kopieren und die [Felder] ausfüllen.)
+
+Erstelle mir eine Mod-Datei (JavaScript) für das Rennspiel „Apex Formula“ mit
+einem eigenen Fahrzeugkonzept (einer „Epoche“).
+  Idee:        [z. B. Formelwagen um 2005: V10, Rillenreifen, viel Abtrieb, kein Hybrid]
+  Charakter:   [z. B. nervöses Heck, extrem hohe Drehzahl, kurze Schaltzeiten]
+  Motorklang:  [6 | 8 | 10 | 12 Zylinder]
+
+Das Standardauto des Spiels (2026) hat zum Vergleich: 770 kg, Radstand 3,40 m,
+Verbrenner ≈ 400 kW bei 12.000 U/min (Begrenzer 15.000) + 350 kW Hybrid,
+8 Gänge, Abtrieb clFW 1.25 / clRW 1.15 / clFloor 1.6 m², Widerstand
+cdBody 0.55 / cdRW 0.36 / cdFW 0.10 m², Reifen muScale 1.0.
+
+Antworte NUR mit dem Dateiinhalt in genau diesem Format (nur abweichende Werte angeben):
+
+ApexMods.register({
+  id: 'kurze-id', name: 'Anzeigename der Mod', author: 'KI-Vorlage', version: '1.0',
+  eras: [{
+    id: 'epochenid', name: 'Kurzname (z. B. 2005)', title: 'Langer Titel', year: 2005,
+    engineName: 'z. B. 3,0-l-V10', desc: 'Ein bis zwei Sätze zum Fahrverhalten.',
+    halo: false, width: 0.93, cylinders: 10,
+    spec: {
+      name: 'Typname', mass: 640, cgHeight: 0.29, wheelbase: 3.1, frontWeight: 0.45,
+      trackF: 1.46, trackR: 1.42, rF: 0.33, rR: 0.335, tyreWidthF: 0.27, tyreWidthR: 0.34,
+      engine: { idleRpm: 5000, limitRpm: 19000, inertia: 0.07, turboTau: [0.02, 0.01],
+                curve: [[0, 120], [4000, 170], [8000, 260], [12000, 320], [16000, 340], [19000, 315], [20000, 270]] },
+      ers: { maxKW: 0 },
+      gearbox: { ratios: [3.3, 2.55, 2.08, 1.75, 1.5, 1.31, 1.17], shiftTime: 0.035 },
+      brakes: { maxTorque: 9000 },
+      aero: { mode: 'none', clFW: 1.15, clRW: 1.3, clFloor: 0.95, cdBody: 0.58, cdRW: 0.33, cdFW: 0.09 },
+      tyre: { muScale: 0.87 },
+    },
+  }],
+});
+
+Regeln:
+- engine.curve: Volllast-Drehmoment [U/min, Nm], aufsteigend, bis knapp über limitRpm.
+  Leistung (kW) = Nm × U/min / 9549. Turbo: turboTau [0.3, 0.08]; Saugmotor: [0.02, 0.01].
+- gearbox.ratios: Gangübersetzungen (Achse 4,0 kommt dazu). Höchstgeschwindigkeit
+  ≈ limitRpm × 0,1047 × rR / (letzter Gang × 4,0) in m/s – soll 300–360 km/h ergeben.
+- ers: { maxKW: 0 } = kein Hybrid; Hybrid z. B. { maxKW: 120, battMJ: 4, lapDeployMJ: 4, maxCrankNm: 200 }.
+- aero.mode: 'none' (fest), 'drs' (Heckflügel öffnet in Zonen; dann zusätzlich
+  straightFW: 1, straightRW: 0.5, cdStraightFW: 1, cdStraightRW: 0.42) oder 'active' (wie 2026).
+- Werte realistisch halten: Masse 500–900 kg, Abtrieb gesamt 1.5–5 m², muScale 0.8–1.1.
+- Keine echten Hersteller- oder Typnamen.

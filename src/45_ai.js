@@ -14,6 +14,8 @@ const AI_LIMITS = {
   power: 600000, mass: 800, drag: 0.0011,           // wirksame Leistung/Luftwiderstand (Vmax ≈ 317 km/h)
 };
 
+const AI_LIMITS_DEFAULT = Object.assign({}, AI_LIMITS);   // Standardauto (Epoche 2026)
+
 /** Schalter für Verhaltensweisen (Tests/Feinabstimmung) */
 const AI_TUNE = { draft: true, defend: true, door: true, lateBrake: true };
 

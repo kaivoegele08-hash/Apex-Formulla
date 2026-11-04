@@ -153,6 +153,24 @@ const ENGINE_V6 = {
   volumes: { exhaust: 0.64, intake: 0.33, vibration: 0.036, gainE: 0.75, gainI: 5.5 },
 };
 
+/**
+ * Abstimmung für andere Zylinderzahlen (Epochen): gleichmäßige Zündabstände, kürzere Rohre und
+ * höhere Grundhelligkeit bei mehr Zylindern (V8/V10/V12 klingen heller und „schreiender“).
+ */
+function engineCfgFor(n) {
+  if (n === 6) return ENGINE_V6;
+  const order = { 8: [0, 4, 2, 6, 1, 5, 3, 7], 10: [0, 5, 2, 7, 4, 9, 1, 6, 3, 8], 12: [0, 6, 4, 10, 2, 8, 5, 11, 1, 7, 3, 9] }[n] || [...Array(n).keys()];
+  const k = n / 6, cyl = [];
+  for (let i = 0; i < n; i++) {
+    const v = Math.sin(i * 2.3) * 0.08;      // kleine Abweichungen je Zylinder
+    cyl.push({ offset: order[i] / n, exhaust: 0.00072 * (1 + v) / Math.sqrt(k), intake: 0.000135 * (1 - v), extractor: 0.0006 * (1 + v * 0.5) / k, exClosed: 0.7 + v * 0.1 });
+  }
+  return Object.assign({}, ENGINE_V6, {
+    cylinders: cyl, pipe: ENGINE_V6.pipe / Math.sqrt(k), noiseLp: Math.min(16000, ENGINE_V6.noiseLp * k), intakeNoise: 0.12,
+    volumes: Object.assign({}, ENGINE_V6.volumes, { gainE: ENGINE_V6.volumes.gainE / Math.sqrt(k), gainI: ENGINE_V6.volumes.gainI * 0.8 }),
+  });
+}
+
 /** Quelltext des AudioWorklets (wird als Blob geladen – die Spieldatei bleibt eine einzige HTML-Datei) */
 function engineWorkletSource() {
   return `${EngineModel.toString()}
@@ -162,7 +180,7 @@ class ApexEngineProcessor extends AudioWorkletProcessor {
     return [{ name: 'rpm', defaultValue: 4000, minValue: 0, maxValue: 20000, automationRate: 'k-rate' },
             { name: 'ignition', defaultValue: 0.3, minValue: 0, maxValue: 1.5, automationRate: 'k-rate' }];
   }
-  constructor() { super(); this.m = new EngineModel(sampleRate, ENGINE_CFG); this.rpm = 4000; this.ign = 0.3; this.alive = true;
+  constructor(opts) { super(); this.m = new EngineModel(sampleRate, (opts && opts.processorOptions && opts.processorOptions.cfg) || ENGINE_CFG); this.rpm = 4000; this.ign = 0.3; this.alive = true;
     this.port.onmessage = (e) => { if (e.data === 'stop') this.alive = false; }; }
   process(inputs, outputs, params) {
     const o = outputs[0]; if (!o || !o[0]) return this.alive;

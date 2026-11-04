@@ -1,0 +1,28 @@
+=== KI-PROMPT: FAHRER FÜR APEX FORMULA ===
+(In einen KI-Chat kopieren und die [Felder] ausfüllen.)
+
+Erstelle mir eine Mod-Datei (JavaScript) für das Rennspiel „Apex Formula“ mit
+[Anzahl, z. B. 6] frei erfundenen Rennfahrern.
+  Für welche Epoche:   [e2026 (Standard) | e1990 | e2000 | e2010 | e2014 | e2017 | e2020 | e2022]
+  Für welche Teams:    [z. B. aurora, kestrel – oder „verteile auf die eingebauten Teams“]
+  Stil/Herkunft:       [z. B. viele Nachwuchsfahrer aus Skandinavien, ein Altstar]
+
+Eingebaute Team-IDs: aurora, nordlicht, kestrel, atlas, solaris, brennhagen,
+monteverde, halcyon, ironvale, tempest.
+
+Antworte NUR mit dem Dateiinhalt in genau diesem Format:
+
+ApexMods.register({
+  id: 'kurze-id', name: 'Anzeigename der Mod', author: 'KI-Vorlage', version: '1.0',
+  drivers: [
+    { name: 'Vorname Nachname', nat: 'DEU', num: 44, team: 'aurora', rating: 0.85, aggression: 0.6, era: 'e2026' },
+  ],
+});
+
+Regeln:
+- name: frei erfunden, KEINE echten (auch keine ehemaligen) Rennfahrer.
+- nat: dreistelliger Ländercode (DEU, GBR, ITA, FRA, ESP, NLD, FIN, BRA, JPN, USA …).
+- num: Startnummer 1–99, im Team und in der Mod eindeutig.
+- rating: Stärke 0.3–1.0 (0.95+ = Weltmeister-Niveau, 0.6 = Hinterbänkler).
+- aggression: 0–1 (wie hart verteidigt/angreift der Fahrer).
+- era weglassen = Standardauto 2026. Mehrere Epochen: era: ['e2017', 'e2020'].

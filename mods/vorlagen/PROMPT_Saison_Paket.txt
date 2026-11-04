@@ -1,0 +1,32 @@
+=== KI-PROMPT: KOMPLETTES MOD-PAKET (SAISON) FÜR APEX FORMULA ===
+(In einen KI-Chat kopieren und die [Felder] ausfüllen. Für große Pakete ggf. in
+ mehreren Antworten erstellen lassen: „Zuerst die Strecken, dann Teams/Fahrer“.)
+
+Erstelle mir EINE Mod-Datei (JavaScript) für das Rennspiel „Apex Formula“ mit:
+  Thema:     [z. B. „Nordeuropa-Serie“: Strecken in Fjord- und Waldlandschaft]
+  Strecken:  [Anzahl und Kurzbeschreibung je Strecke]
+  Teams:     [Anzahl, Stil der Namen/Farben]
+  Fahrer:    [je Team zwei Fahrer, Herkunft/Stil]
+  Epoche:    [e2026 (Standard) oder eine der eingebauten: e1990 e2000 e2010 e2014 e2017 e2020 e2022]
+
+Format (NUR den Dateiinhalt ausgeben):
+
+ApexMods.register({
+  id: 'paket-id', name: 'Name des Pakets', author: 'KI-Vorlage', version: '1.0',
+  tracks: [ { id, name, location, character, timeOfDay, layout: { corners: [[x, z, radius], ...], width, elevation }, corners: [{ name, at }] }, ... ],
+  teams: [ { id, name, short, colors: ['#rrggbb', '#rrggbb', '#rrggbb'], pattern, sponsors: ['A', 'B'] }, ... ],
+  drivers: [ { name, nat, num, team, rating, aggression, era }, ... ],
+});
+
+Regeln für Strecken (layout.corners):
+- Eckpunkte in Fahrtrichtung, geschlossener Rundkurs, Meter; x = Osten, z = Süden.
+- Drittes Feld = Kurvenradius in m (Haarnadel 12–20, eng 20–35, mittel 40–80, schnell 90–200).
+- Für jede Ecke: radius × tan(Richtungsänderung/2) < halbe Länge der kürzeren angrenzenden Geraden.
+- Länge 1,2–9 km, keine Selbstkreuzung, mindestens 40 m Abstand zwischen Abschnitten.
+- Längste Gerade ≥ 700 m (Start/Ziel + Boxengasse), Links- und Rechtskurven mischen.
+- elevation: [[Anteil 0..1, Höhe m], ...], Steigungen ≤ 6 %. timeOfDay: morning | afternoon | evening | dusk.
+Regeln für Teams/Fahrer:
+- colors = [Basis, Sekundär, Akzent]; pattern = stripe | split | chevron; short = 3 Großbuchstaben.
+- Fahrer: rating 0.3–1.0, aggression 0–1, num 1–99 eindeutig, team = id eines Teams aus dieser Mod
+  oder eingebaut (aurora, nordlicht, kestrel, atlas, solaris, brennhagen, monteverde, halcyon, ironvale, tempest).
+- Alle ids klein, ohne Leerzeichen; alle Namen, Marken und Sponsoren frei erfunden.

@@ -24,7 +24,7 @@ function qualiCompound(w) { return Weather.bestFor(w) || 'soft'; }
 function estimateAILap(track, line, prof, { water = 0, trackGrip = 1, rng = Math.random } = {}) {
   const grip = clamp(prof.skill * trackGrip * compoundGrip(qualiCompound(water), water), 0.5, 1.2);
   // Faktor sinkt mit geringerer Fähigkeit leicht (gemessen: −0,006 je −0,04 Fähigkeit)
-  const base = line.profile(Math.round(grip * 1000) / 1000).lapTime * ((track.def.aiLapFactor || 1.05) - 0.15 * (1 - clamp(prof.skill, 0.8, 1)));
+  const base = line.profile(Math.round(grip * 1000) / 1000).lapTime * (lapFactor(track, line) - 0.15 * (1 - clamp(prof.skill, 0.8, 1)));
   // Streuung: unbeständige Fahrer treffen die Runde seltener perfekt (nur langsamer, nie schneller)
   const miss = Math.abs(gauss(rng)) * (0.0008 + (1 - prof.consistency) * 0.005) + water * 0.006 * rng();
   return base * (1 + miss);
@@ -33,7 +33,35 @@ function gauss(rng) { let u = 0; for (let i = 0; i < 6; i++) u += rng(); return 
 
 /** Schätzung der KI-Rundenzeit bei 100 % Stärke (für Anzeigen in den Menüs) */
 function refLapTime(track, line, water = 0) {
-  return line.profile(clamp(compoundGrip(Weather.bestFor(water) || 'medium', water), 0.5, 1.2)).lapTime * (track.def.aiLapFactor || 1.05);
+  return line.profile(clamp(compoundGrip(Weather.bestFor(water) || 'medium', water), 0.5, 1.2)).lapTime * lapFactor(track, line);
+}
+
+/**
+ * Verhältnis echte KI-Runde / Profil-Rundenzeit (weiche Reifen, Fähigkeit 1). Für das Standardauto
+ * aus den Streckendaten, sonst (andere Epoche, Mod-Strecke) einmal simuliert (≈ 1 s) und gespeichert.
+ */
+const LAPCAL_V = 1;
+function lapFactor(track, line) {
+  if (ACTIVE_ERA === 'e2026' && track.def.aiLapFactor) return track.def.aiLapFactor;
+  const key = ACTIVE_ERA + '|' + track.id, all = Save.get('lapCal', {});
+  if (all[key] && all[key].v === LAPCAL_V) return all[key].f;
+  const f = calibrateLapFactor(track, line);
+  all[key] = { v: LAPCAL_V, f }; Save.set('lapCal', all);
+  return f;
+}
+function calibrateLapFactor(track, line) {
+  const T = track, h = PHYS_DT, v = new Vehicle(CAR_SPEC, {}); v.setCompound('soft', 85);
+  const s0 = T.length - 150; v.placeOnTrack(T, s0, line.offsetAt(s0));
+  const ai = new AIDriver(v, line, { skill: 1, aggression: 0.5, consistency: 1, reaction: 0.2 }, 3), me = { vehicle: v, ai };
+  let start = null, t = 0, lastS = v.trackS, lap = null;
+  for (let i = 0; i < 360 * 260 && lap === null; i++) {
+    ai.control(h, { cars: [me], me, state: 'free', time: t }); v.step(h); t += h; v.events.length = 0;
+    if (ai.needsReset) { v.placeOnTrack(T, v.trackS, line.offsetAt(v.trackS)); ai.resetAfterRecovery(); start = null; }
+    if (lastS > T.length - 60 && v.trackS < 60) { if (start !== null) lap = t - start; else start = t; }
+    lastS = v.trackS;
+  }
+  const prof = line.profile(Math.round(compoundGrip('soft', 0) * 1000) / 1000).lapTime;
+  return lap ? clamp(lap / prof, 0.9, 1.25) : 1.05;
 }
 
 /**
@@ -113,9 +141,9 @@ function simulatedGrid(track, line, field, { strength = 1, water = 0, rng = Math
 // ---------------------------------------------------------------------------
 const Season = {
   /** Neue Saison anlegen (wird über Save gespeichert) */
-  create({ tracks = TRACK_ORDER.slice(), distance = 'short', quali = true, qualiMin = 10, weather = 'random', strength = 1, team, playerName, number }) {
+  create({ tracks = TRACK_ORDER.slice(), distance = 'short', quali = true, qualiMin = 10, weather = 'random', strength = 1, team, playerName, number, era = 'e2026' }) {
     return {
-      v: 1, created: Date.now(), tracks, distance, quali, qualiMin, weather, strength, team, playerName, number,
+      v: 1, created: Date.now(), tracks, distance, quali, qualiMin, weather, strength, team, playerName, number, era,
       round: 0, results: [], drivers: {}, teams: {},
     };
   },

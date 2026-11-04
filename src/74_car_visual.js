@@ -267,7 +267,7 @@ class SteeringWheelModel {
   update(veh, info, now) {
     const rpm = veh.rpm, lim = veh.spec.engine.limitRpm;
     const blink = veh.limiterCut || rpm > lim - 60 ? (Math.floor(now * 12) % 2) : 1;
-    const start = 10600, step = (lim - 250 - start) / 15;
+    const start = lim * 0.707, step = (lim - 250 - start) / 15;
     for (let i = 0; i < 15; i++) {
       const on = rpm > start + i * step && blink;
       this.leds[i].color.copy(on ? this.ledCols[i] : this.ledDim[i]);
@@ -332,7 +332,7 @@ class CarVisual {
     cast.push(add(G.carbon, this.carbonMat));
     cast.push(add(G.endplates, this.endMat));
     mid.push(this.cockpit);
-    mid.push(add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
+    mid.push(this.haloMesh = add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
     fine.push(add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false));
     mid.push(add(G.rim, new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.95 }), root, false));
     for (const sx of [-1, 1]) {
@@ -403,6 +403,26 @@ class CarVisual {
     this.lodFine = fine.concat(this.rods.map(r => r.mesh)); this.lodMid = mid.concat(this.fwFlaps, [this.rwPivot, this.helmet]);
     this.shadowMeshes = cast.concat([this.cockpit]);
     root.traverse(o => { if (o.isMesh) o.frustumCulled = true; });
+    this.applyEraLook();
+  }
+  /**
+   * Epochen-Optik: Halo nur ab 2018, Karosserie auf Radstand/Breite der Epoche skaliert
+   * (die Räder sitzen ohnehin dort, wo die Physik sie hat).
+   */
+  applyEraLook() {
+    const E = typeof eraOf === 'function' ? eraOf(CAR_SPEC.era || 'e2026') : { halo: true, width: 1 };
+    const sz = (CAR_SPEC.wheelbase || 3.4) / 3.4, sx = E.width || 1;
+    const wheelRoots = new Set(this.wheels.map(w => w.root)), rods = new Set(this.rods.map(r => r.mesh));
+    for (const o of this.root.children) {
+      if (wheelRoots.has(o) || rods.has(o)) continue;
+      if (!o.userData.p0) o.userData.p0 = o.position.clone();
+      o.position.set(o.userData.p0.x * sx, o.userData.p0.y, o.userData.p0.z * sz);
+      if (o === this.helmet || o === this.swPivot) continue;
+      o.scale.set(sx, 1, sz);
+    }
+    for (const r of this.rods) { if (!r.a0) r.a0 = r.a.clone(); r.a.set(r.a0.x * sx, r.a0.y, r.a0.z * sz); }
+    if (this.haloMesh) this.haloMesh.visible = E.halo !== false;
+    this.haloOn = E.halo !== false;
   }
 
   /** Schatten nur von den großen Teilen (Kleinteile verdoppeln sonst die Draw Calls im Schattenpass) */

@@ -241,6 +241,34 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
 #replayTower .tr:hover { background: var(--bg3); }
 #replayTower .tr.me { background: rgba(255,59,31,0.25); } #replayTower .tr.cur { outline: 1px solid var(--tx0); }
 #replayTower .tr b { width: 18px; text-align: right; color: var(--tx1); } #replayTower .tr i { width: 4px; height: 12px; }
+
+/* Hauptmenü (Kachel-Hub) */
+.screen.hub { padding: 26px 40px 20px; background: linear-gradient(90deg, rgba(7,8,11,0.88) 0%, rgba(7,8,11,0.55) 52%, rgba(7,8,11,0.05) 100%); }
+.hub-top { display: flex; align-items: center; gap: 22px; }
+.hub-top .brand { font-size: 46px; margin: 0; }
+.hub-top .brand-sub { margin: 0; font-size: 12px; }
+.hub-prof { margin-left: auto; display: flex; align-items: center; gap: 10px; background: rgba(14,17,23,0.85); border-left: 3px solid var(--acc); padding: 8px 14px; cursor: pointer; }
+.hub-prof b { font-size: 16px; font-style: italic; } .hub-prof small { color: var(--tx2); display: block; font-size: 11px; }
+.hub-prof .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; background: var(--acc); }
+.hub-main { display: grid; grid-template-columns: minmax(300px, 1.25fr) repeat(2, minmax(200px, 1fr)); grid-auto-rows: minmax(118px, 1fr); gap: 12px; margin-top: 26px; max-width: 1080px; flex: 1; max-height: 520px; }
+.tile { position: relative; overflow: hidden; border: 0; text-align: left; color: var(--tx0); background: rgba(21,26,34,0.86); padding: 16px 18px; cursor: pointer; display: flex; flex-direction: column; justify-content: flex-end; transition: transform 0.12s, box-shadow 0.12s; outline: none; }
+.tile::before { content: ''; position: absolute; inset: 0; background: var(--tbg, linear-gradient(135deg, #1d2430, #0e1117)); opacity: 0.95; z-index: 0; }
+.tile::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: var(--tacc, var(--acc)); z-index: 1; transform: scaleY(0.35); transform-origin: bottom; transition: transform 0.15s; }
+.tile:hover, .tile:focus-visible { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.45), inset 0 0 0 2px rgba(255,255,255,0.18); }
+.tile:hover::after, .tile:focus-visible::after { transform: scaleY(1); }
+.tile > * { position: relative; z-index: 2; }
+.tile .tk { font-size: 11px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--tx1); }
+.tile .tt { font-size: 24px; font-weight: 900; font-style: italic; text-transform: uppercase; line-height: 1.05; margin-top: 4px; }
+.tile .td { font-size: 12px; color: var(--tx1); margin-top: 6px; max-width: 34ch; }
+.tile .tbadge { position: absolute; top: 12px; right: 12px; font-size: 10px; font-weight: 900; letter-spacing: 0.12em; padding: 3px 7px; background: var(--acc); text-transform: uppercase; }
+.tile .tbadge.soon { background: var(--bg3); color: var(--tx1); }
+.tile .tdeco { position: absolute; right: -10px; bottom: -28px; font-size: 120px; font-weight: 900; font-style: italic; color: rgba(255,255,255,0.05); line-height: 1; z-index: 1; }
+.tile.big { grid-row: span 2; } .tile.big .tt { font-size: 38px; }
+.tile.dim { cursor: default; } .tile.dim .tt { color: var(--tx2); }
+.hub-small { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; max-width: 1080px; }
+.hub-small .btn { font-size: 13px; padding: 9px 14px; }
+.hub-foot { display: flex; gap: 16px; align-items: center; margin-top: 12px; color: var(--tx2); font-size: 12px; font-style: italic; }
+.hub-foot .devices-pill { position: static; max-width: none; }
 </style>
 <script type="importmap">
 {
@@ -341,6 +369,22 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
     }, 20000);
   })();
 </script>
+<script>
+// Mods: Dateien aus dem Ordner „mods“ neben dieser HTML-Datei (Liste in mods/mods.js).
+// Klassische Skripte laufen vor dem Spielmodul; document.write hält die Reihenfolge ein.
+window.ApexMods = {
+  list: [], missing: [], indexFound: false, api: 1,
+  register(m) {
+    const cs = document.currentScript, src = (cs && cs.src ? decodeURIComponent(cs.src.split('/').pop()) : this._src) || 'unbekannt';
+    if (m && typeof m === 'object') this.list.push(Object.assign({ source: src }, m));
+  },
+  load(file) {
+    if (typeof file !== 'string' || !/^[\w .()-]+\.js$/i.test(file)) { this.missing.push(String(file) + ' (ungültiger Dateiname)'); return; }
+    document.write('<script src="mods/' + encodeURI(file) + '" onerror="ApexMods.missing.push(\'' + file.replace(/'/g, '') + '\')"><\/script>');
+  },
+};
+</script>
+<script src="mods/mods.js" onload="ApexMods.indexFound = true"></script>
 <script type="module">
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';

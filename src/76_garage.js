@@ -78,7 +78,8 @@ class GarageScene {
     this.turn.rotation.y += dt * 0.16;
     const a = this.t * 0.07;
     this.camera.position.set(Math.sin(a) * 1.6 + 5.6, 1.55 + Math.sin(this.t * 0.21) * 0.15, Math.cos(a) * 1.2 + 4.6);
-    this.camera.lookAt(0.6, 0.35, 0);
+    // Auto rechts im Bild (links liegen die Menükacheln)
+    this.camera.lookAt(-1.9, 0.55, 0.4);
     this.camera.aspect = aspect; this.camera.updateProjectionMatrix();
     if (this.car) {
       // leicht eingelenkte Vorderräder und Lenkrad

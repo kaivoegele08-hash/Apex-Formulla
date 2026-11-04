@@ -287,7 +287,7 @@ class RaceSession {
       const j = Math.floor(s / T.ds) % T.N, hw = T.HW[j];
       const lat = (k % 2 === 0 ? -1 : 1) * Math.min(2.7, hw * 0.34);
       e.vehicle.placeOnTrack(T, s, lat);
-      e.vehicle.gear = 1;
+      e.vehicle.gear = 1; e.vehicle.drsOK = false;
       e.gridX = e.vehicle.pos.x; e.gridZ = e.vehicle.pos.z;
       e.timing.prevS = e.vehicle.trackS;
       e.distance = s - L;
@@ -676,12 +676,12 @@ class RaceSession {
           const ahead = order[e.pos - 2];
           const g = ahead ? this.gap(ahead, e) : null;
           const ok = e.timing.laps.length >= 1 && g && g.s != null && g.s > 0 && g.s < 1.0;
-          v.overtakeAvailable = ok; if (!ok) v.overtakeActive = false;
+          v.overtakeAvailable = ok; v.drsOK = ok; if (!ok) v.overtakeActive = false;
           if (e.ai && ok) e.ai.wantOvertake = true;
         }
       }
       e._lastDetS = s;
-      if (e.ai && v.overtakeAvailable && !v.overtakeActive && e.ai.leader && e.ai.leadDs < 35) { v.overtakeActive = true; v.overtakeAvailable = false; }
+      if (e.ai && v.spec.ers.overtake && v.overtakeAvailable && !v.overtakeActive && e.ai.leader && e.ai.leadDs < 35) { v.overtakeActive = true; v.overtakeAvailable = false; }
     }
   }
 
@@ -778,11 +778,13 @@ class PracticeSession {
     this.track = track;
     this.timing = new LapTiming(track, { mode: 'practice' });
     this.rec = new LapRecorder(track);
-    const best = Save.get('bestLaps', {})[track.id];
+    // Bestzeiten/Ghosts je Epoche getrennt (Standardauto behält die alten Schlüssel)
+    this.key = track.id + (ACTIVE_ERA === 'e2026' ? '' : '|' + ACTIVE_ERA);
+    const best = Save.get('bestLaps', {})[this.key];
     this.storedBest = best ? best.time : Infinity;
     this.bestTrace = best && best.trace ? Float32Array.from(best.trace) : null;
     this.storedBestSectors = best && best.sectors ? best.sectors : null;
-    const gh = Save.get('ghosts', {})[track.id];
+    const gh = Save.get('ghosts', {})[this.key];
     this.ghost = gh && gh.data ? { time: gh.time, data: gh.data } : null;
     this.delta = null;
     const N = Math.ceil(track.length / 10) + 2;
@@ -805,10 +807,10 @@ class PracticeSession {
       Events.emit('lap:start', data);
     } else if (type === 'sector') {
       // lila = Allzeit-Bestwert dieser Strecke, grün = Bestwert dieser Sitzung, gelb = langsamer
-      const all = Save.get('bestSectors', {}), bs = all[this.track.id] || [Infinity, Infinity, Infinity];
+      const all = Save.get('bestSectors', {}), bs = all[this.key] || [Infinity, Infinity, Infinity];
       let st = 'yellow';
       if (!this.timing.valid) st = 'invalid';
-      else if (data.t <= (bs[data.k] ?? Infinity)) { st = 'purple'; bs[data.k] = data.t; all[this.track.id] = bs; Save.set('bestSectors', all); }
+      else if (data.t <= (bs[data.k] ?? Infinity)) { st = 'purple'; bs[data.k] = data.t; all[this.key] = bs; Save.set('bestSectors', all); }
       else if (data.pb) st = 'green';
       this.sectorState[data.k] = st;
       Events.emit('lap:sector', data.k, data.t, this.sectorState[data.k]);
@@ -820,11 +822,11 @@ class PracticeSession {
         this.bestTrace = Float32Array.from(this.trace);
         this.storedBestSectors = data.sectors;
         const all = Save.get('bestLaps', {});
-        all[this.track.id] = { time: data.time, trace: Array.from(this.trace, x => Math.round(x * 1000) / 1000), sectors: data.sectors, compound: v ? v.compound : '', date: new Date().toISOString() };
+        all[this.key] = { time: data.time, trace: Array.from(this.trace, x => Math.round(x * 1000) / 1000), sectors: data.sectors, compound: v ? v.compound : '', date: new Date().toISOString() };
         Save.set('bestLaps', all);
         if (lap && lap.ghost.length) {
           this.ghost = { time: data.time, data: lap.ghost };
-          const gs = Save.get('ghosts', {}); gs[this.track.id] = { time: data.time, data: lap.ghost }; Save.set('ghosts', gs);
+          const gs = Save.get('ghosts', {}); gs[this.key] = { time: data.time, data: lap.ghost }; Save.set('ghosts', gs);
         }
         Events.emit('lap:best', data.time);
       }

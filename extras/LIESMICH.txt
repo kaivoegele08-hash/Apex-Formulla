@@ -24,6 +24,13 @@ SPIELEN
   deine beste gültige Runde bestimmt den Startplatz.
   „Meisterschaft“: Saison über alle vier Strecken mit Punkten, Fahrer- und
   Teamwertung; der Spielstand wird automatisch gespeichert.
+  Epochen: in Testfahrt, Rennvorbereitung und Meisterschaft wählbar
+  (1990 bis 2026) – jeweils eigenes Auto, Fahrverhalten, Motorklang und
+  Fahrerfeld. 1990–2010 ohne ERS/DRS, 2014–2022 mit DRS (öffnet nur bei
+  < 1 s Abstand am Erkennungspunkt), 2026 mit aktiver Aero + Überholmodus.
+  Mods: Ordner „mods“ neben der HTML-Datei – eigene Strecken, Teams, Fahrer
+  und Autos. Anleitung: mods/README.txt, KI-Prompts: mods/vorlagen.
+  Siegerehrung nach dem Rennen (in der Rennvorbereitung abschaltbar).
   Wiederholung: im Pausemenü (letzte Sekunden) oder nach dem Rennen im
   Ergebnis. Leertaste = Abspielen/Pause, Pfeiltasten = spulen/Auto wechseln,
   C = Kamera (auch Helikopter), F = automatische Regie, Esc = zurück.

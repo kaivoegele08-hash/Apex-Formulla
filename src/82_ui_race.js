@@ -52,6 +52,7 @@ Object.assign(UI, {
             h('div', h('span.stat', h('b', fmtNum(track.length / 1000, 3) + ' km'), h('small', 'Länge')), h('span.stat', h('b', String(full)), h('small', 'Runden (100 %)'))),
           )),
           h('div.card', h('h3', 'Strecke wählen'), chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), track.id, v => { S.game.track = v; save(); this.show('raceSetup', { noHistory: true }); })),
+          eraCard(S.game.era || 'e2026'),
           h('div.card', h('h3', 'Renndistanz'), chips(lapsOpts.map(n => ({ value: n, label: n === full ? `${n} Runden (100 %)` : `${n} Runden` })), R.laps, v => { R.laps = v; save(); updEst(); }), est),
           h('div.card', h('h3', 'Starterfeld'),
             fieldRow('Gegner', toggle([5, 9, 13, 19].map(n => ({ value: n, label: String(n) })), R.opponents, v => { R.opponents = v; save(); })),
@@ -68,6 +69,7 @@ Object.assign(UI, {
           h('div.card', h('h3', 'Regeln'),
             fieldRow('Schaden', toggle([{ value: 'off', label: 'Aus' }, { value: 'reduced', label: 'Reduziert' }, { value: 'full', label: 'Realistisch' }], R.damage, v => { R.damage = v; save(); })),
             fieldRow('Safety Car / VSC', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], R.safetyCar !== false, v => { R.safetyCar = v; save(); })),
+            fieldRow('Siegerehrung', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], R.podium !== false, v => { R.podium = v; save(); })),
             fieldRow('Pflichtstopp', toggle([{ value: 'auto', label: 'Ab 10 Runden' }, { value: 'on', label: 'Immer' }, { value: 'off', label: 'Aus' }], R.mandatory || 'auto', v => { R.mandatory = v; save(); })),
             h('p', { style: { fontSize: '12px' } }, 'Pflichtstopp: zwei verschiedene Trockenmischungen im Rennen, sonst 30 s Strafe. Box anfordern mit Taste B (am Lenkrad belegbar) – der Autopilot fährt durch die Gasse.'),
             h('p', { style: { fontSize: '12px' } }, 'Track Limits: alle vier Räder jenseits der weißen Linie = Verwarnung; ab der 4. Verwarnung 5 s Zeitstrafe. Start: das Auto wird gehalten, bis die Ampel erlischt.'),
@@ -229,8 +231,8 @@ Object.assign(UI, {
       race.fastest.entry ? h('div.hint', 'Schnellste Runde: ', h('b', `${race.fastest.entry.name} ${fmtTime(race.fastest.time)}`), ` (Runde ${race.fastest.lap})`) : null,
       h('div.scroll', { style: { flex: '1' } }, tbl),
       Game.seasonRound && Game.season
-        ? h('div.actions', btn('Wiederholung', () => Game.openReplay('results')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))
-        : h('div.actions', btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+        ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))
+        : h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
     );
   },
 
@@ -313,6 +315,18 @@ Object.assign(UI, {
   },
 
   // ---------------------------------------------------------------------------
+  //  Siegerehrung (Overlay über der Podest-Szene)
+  // ---------------------------------------------------------------------------
+  scr_podium(opts = {}) {
+    const list = opts.list || [];
+    const row = (p, i) => { const tm = p.team; return h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: i === 0 ? '24px' : '18px', fontWeight: 900, fontStyle: 'italic', margin: '4px 0' } },
+      h('span', { style: { color: ['#e8c14a', '#c9ced6', '#c0814a'][i], width: '34px' } }, `P${i + 1}`), h('i', { style: { background: tm.colors[0], width: '6px', height: '22px', display: 'inline-block' } }), `${p.number} · ${p.name}`, h('small', { style: { color: '#9aa3ad', fontWeight: 700, fontSize: '13px' } }, tm.name)); };
+    return h('section.screen', { style: { background: 'linear-gradient(0deg, rgba(7,8,11,0.85) 0%, rgba(7,8,11,0) 40%)', justifyContent: 'flex-end' } },
+      h('div', h('div', { style: { color: '#ff3b1f', fontWeight: 800, fontStyle: 'italic', letterSpacing: '0.15em', textTransform: 'uppercase' } }, 'Siegerehrung'), ...list.map(row)),
+      h('div.actions', btn('Weiter zum Ergebnis', () => Game.closePodium(), 'primary', '▶')));
+  },
+
+  // ---------------------------------------------------------------------------
   //  Qualifying-Ergebnis
   // ---------------------------------------------------------------------------
   scr_qualiResults() {
@@ -348,6 +362,7 @@ Object.assign(UI, {
           h('div.col', { style: { flex: '1 1 520px', maxWidth: '720px' } },
             h('div.card', h('h3', 'Kalender'), h('ol', TRACK_ORDER.map(id => h('li', `${TRACKS[id].name} – ${fmtNum(Game.getTrackModel(id).length / 1000, 2)} km`))),
               h('p', { style: { fontSize: '12px' } }, `Punkte: ${POINTS.join('-')} für die Plätze 1–10, +1 für die schnellste Runde (wenn in den Top 10). Volles Feld mit 20 Autos, Fahrer- und Teamwertung. Der Spielstand wird automatisch gespeichert.`)),
+            eraCard(o.era || Game.settings.game.era || 'e2026', (id) => { o.era = id; Game.setEra(id); }),
             h('div.card', h('h3', 'Renndistanz'), toggle(Object.entries(SEASON_DISTANCES).map(([value, d]) => ({ value, label: d.name })), o.distance, v => { o.distance = v; })),
             h('div.card', h('h3', 'Qualifying'), toggle([{ value: 0, label: 'Aus (Startplatz Mitte)' }, ...QUALI_DURATIONS.map(m => ({ value: m, label: `${m} min` }))], o.quali ? o.qualiMin : 0, v => { o.quali = v > 0; if (v) o.qualiMin = v; })),
             h('div.card', h('h3', 'Wetter'), chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), o.weather, v => { o.weather = v; }), h('p', { style: { fontSize: '12px' } }, '„Zufällig“ würfelt das Wetter für jedes Wochenende neu.')),

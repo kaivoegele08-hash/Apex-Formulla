@@ -1,0 +1,52 @@
+=== KI-PROMPT: NEUE STRECKE FÜR APEX FORMULA ===
+(Alles ab hier in einen KI-Chat kopieren und die [Felder] ausfüllen.
+ Tipp: Du kannst zusätzlich ein Foto/eine Skizze deiner Strecke anhängen.)
+
+Erstelle mir eine Mod-Datei (JavaScript) für das Browser-Rennspiel „Apex Formula“.
+Die Strecke soll so sein:
+  Name:            [z. B. Bergland-Ring]
+  Länge:           [z. B. ca. 4,8 km]
+  Charakter:       [z. B. schnell und flüssig / enger Stadtkurs / viele Höhenmeter]
+  Besonderheiten:  [z. B. lange Gerade am Start, Haarnadel am Ende, schnelle S-Kurven]
+  Tageszeit:       [morning | afternoon | evening | dusk]
+  Skizze:          [optional: „siehe Bild“ oder Beschreibung der Form]
+
+Antworte NUR mit dem Inhalt der Datei, ohne Erklärtext, in genau diesem Format:
+
+ApexMods.register({
+  id: 'kurze-id-der-mod', name: 'Anzeigename der Mod', author: 'KI-Vorlage', version: '1.0',
+  tracks: [{
+    id: 'streckenid', name: 'Streckenname', location: 'Ort', character: 'Ein Satz zur Strecke.',
+    timeOfDay: 'afternoon',
+    layout: {
+      corners: [[x, z, radius], ...],
+      width: 13,
+      elevation: [[0, 0], [0.5, 10]],
+    },
+    corners: [{ name: 'Kurvenname', at: 0.1 }],
+    scenery: { trees: 800 },
+  }],
+});
+
+Regeln für layout.corners (sehr wichtig, sonst lädt die Strecke nicht):
+1. Liste der ECKPUNKTE in Fahrtrichtung als geschlossener Rundkurs; der letzte
+   Punkt verbindet sich automatisch mit dem ersten. Einheit: Meter.
+   x = nach Osten, z = nach Süden. Zwischen den Ecken entstehen Geraden.
+2. Drittes Feld = Kurvenradius der Ecke in Metern: Haarnadel 12–20, eng 20–35,
+   mittel 40–80, schnell 90–200, Vollgasbogen 250 und mehr.
+   Optionales viertes Feld = Streckenbreite an dieser Ecke (8–22 m).
+3. Der Kreisbogen braucht Platz: für jede Ecke muss gelten
+   radius × tan(Richtungsänderung/2) < halbe Länge der kürzeren angrenzenden Geraden.
+   Rechne das für jede Ecke nach und verkleinere den Radius, wenn nötig.
+4. Gesamtlänge 1,2 bis 9 km. Die Strecke darf sich nicht selbst kreuzen und
+   Abschnitte sollten mindestens 40 m Abstand zueinander haben.
+5. Die längste Gerade wird Start/Ziel mit Boxengasse – sie sollte mindestens
+   700 m lang sein. Gute Strecken haben Links- UND Rechtskurven.
+6. elevation: Punkte [Anteil der Runde 0..1, Höhe in m], weich interpoliert;
+   Steigungen höchstens ca. 6 % (10 m Höhe auf mindestens 170 m Strecke).
+7. corners.at = Position der Kurve als Anteil der Runde (0..1) ab Start/Ziel
+   (ungefähr reicht). ids nur aus Kleinbuchstaben, Ziffern, - oder _.
+8. Keine echten Streckennamen, Marken oder Sponsoren – alles frei erfunden.
+
+Zum Schluss prüfe selbst: Ist die Länge plausibel? Passen alle Radien (Regel 3)?
+Kreuzt sich nichts? Dann gib die Datei aus.

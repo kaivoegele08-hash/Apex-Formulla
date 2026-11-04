@@ -45,6 +45,22 @@ function slider(label, value, min, max, step, onInput, fmt = (v) => String(v)) {
   inp.addEventListener('input', () => { const v = parseFloat(inp.value); val.textContent = fmt(v); onInput(v); });
   return h('div.field', h('label', label), inp, val);
 }
+/** Epochen-Auswahl mit Beschreibung und Kenndaten; onPick(id) – Standard: Einstellung + sofort aktivieren */
+function eraCard(cur, onPick) {
+  const info = h('div');
+  const show = (id) => {
+    const E = eraOf(id), S = Object.assign({}, CAR_SPEC_BASE, E.spec || {}), eng = Object.assign({}, CAR_SPEC_BASE.engine, (E.spec || {}).engine || {});
+    const ice = Math.max(...eng.curve.map(([r, T]) => T * r * Math.PI / 30)) / 1000, ers = ((E.spec || {}).ers || CAR_SPEC_BASE.ers).maxKW;
+    const aero = ((E.spec || {}).aero || {}).mode || 'active';
+    info.innerHTML = '';
+    info.append(h('h2.ital', { style: { margin: '8px 0 4px' } }, E.title), h('p', E.desc),
+      h('div', h('span.stat', h('b', Math.round((ice + ers) * 1.36) + ' PS'), h('small', E.engineName)), h('span.stat', h('b', S.mass + ' kg'), h('small', 'mit Fahrer')),
+        h('span.stat', h('b', ers ? `${ers} kW` : '–'), h('small', 'ERS')), h('span.stat', h('b', aero === 'drs' ? 'DRS' : aero === 'active' ? 'Aktiv' : '–'), h('small', 'Aero')), h('span.stat', h('b', E.halo ? 'ja' : 'nein'), h('small', 'Halo'))));
+  };
+  show(cur);
+  return h('div.card', h('h3', 'Epoche (Fahrzeug, Fahrverhalten, Fahrerfeld)'),
+    chips(ERA_ORDER.map(id => ({ value: id, label: ERAS[id].name })), cur, (id) => { (onPick || ((x) => Game.setEra(x)))(id); show(id); }), info);
+}
 function fieldRow(label, control) { return h('div.field.wide', h('label', label), control); }
 
 const UI = {
@@ -92,23 +108,45 @@ const UI = {
   //  Hauptmenü
   // ---------------------------------------------------------------------------
   scr_main() {
+    const S = Game.settings, G = S.game, E = eraOf(G.era || 'e2026'), team = Game.team;
     const devs = h('div.devices-pill', { id: 'devPill' });
     this._updateDevPill(devs);
-    return h('section.screen',
-      h('div.brand', 'APEX ', h('b', 'FORMULA')),
-      h('div.brand-sub', 'World Championship'),
-      h('div.menu',
-        btn('Schnelles Rennen', () => this.show('raceSetup'), 'primary', '▶'),
-        btn(Game.season && !Season.done(Game.season) ? `Meisterschaft · Runde ${Game.season.round + 1}/${Game.season.tracks.length}` : 'Meisterschaft', () => this.show('season')),
-        btn('Testfahrt / Training', () => this.show('drive')),
+    const season = Game.season, sDone = season && Season.done(season);
+    const tile = (o) => {
+      const el = h('button.tile' + (o.big ? '.big' : '') + (o.dim ? '.dim' : ''), { onclick: () => { if (o.dim) { this.toast(o.dimMsg || 'Kommt bald'); return; } AudioSys.uiClick(); o.go(); } },
+        o.badge ? h('span.tbadge' + (o.dim ? '.soon' : ''), o.badge) : null, o.deco ? h('span.tdeco', o.deco) : null,
+        h('span.tk', o.kicker || ''), h('span.tt', o.title), o.desc ? h('span.td', o.desc) : null);
+      if (o.bg) el.style.setProperty('--tbg', o.bg);
+      if (o.acc) el.style.setProperty('--tacc', o.acc);
+      return el;
+    };
+    const c0 = team.colors[0], c1 = team.colors[1];
+    const tiles = h('div.hub-main',
+      tile({ big: true, kicker: 'Spielmodus', title: 'Karriere', desc: 'Eigener Fahrer, mehrere Saisons, Teamwechsel, Rivalen und Social Media.', deco: 'K', dim: !UI.scr_career, dimMsg: 'Die Karriere kommt mit einem der nächsten Updates.', badge: UI.scr_career ? (Save.get('career', null) ? 'Fortsetzen' : 'Neu') : 'Bald',
+        bg: `linear-gradient(135deg, ${c0}cc 0%, #0e1117 70%)`, acc: c1, go: () => this.show('career') }),
+      tile({ kicker: season && !sDone ? `Runde ${season.round + 1} von ${season.tracks.length}` : 'Saison', title: 'Meisterschaft', desc: season && !sDone ? `${eraOf(season.era || 'e2026').title} · weiterfahren` : 'Vier Rennen, Punkte, Fahrer- und Teamwertung.', deco: 'M', badge: season && !sDone ? 'Läuft' : '',
+        bg: 'linear-gradient(135deg, #3a2a08 0%, #0e1117 75%)', acc: '#ffd400', go: () => this.show('season') }),
+      tile({ kicker: 'Sofort fahren', title: 'Schnelles Rennen', desc: 'Strecke, Epoche, Wetter, Gegner – und los.', deco: 'R', bg: 'linear-gradient(135deg, #3a0f0a 0%, #0e1117 75%)', go: () => this.show('raceSetup') }),
+      tile({ kicker: 'Training', title: 'Testfahrt / Training', desc: 'Bestzeiten, Ghost, Setup und Telemetrie.', deco: 'T', bg: 'linear-gradient(135deg, #0a2a33 0%, #0e1117 75%)', acc: '#38c6ff', go: () => this.show('drive') }),
+      tile({ kicker: 'Online & LAN', title: 'Mehrspieler', desc: 'Lobby-Code, Freunde, der Host-PC ist der Server.', deco: 'MP', dim: !UI.scr_multi, dimMsg: 'Der Mehrspielermodus kommt mit einem der nächsten Updates.', badge: UI.scr_multi ? '' : 'Bald',
+        bg: 'linear-gradient(135deg, #1d0f33 0%, #0e1117 75%)', acc: '#b65cff', go: () => this.show('multi') }),
+      tile({ kicker: `Epoche ${E.name}`, title: 'Epochen & Mods', desc: `${E.title} · ${MOD_REPORT.filter(r => r.ok).length} Mods geladen`, deco: E.name.slice(-2), bg: 'linear-gradient(135deg, #0f2a17 0%, #0e1117 75%)', acc: '#2fe36b', go: () => this.show('mods') }),
+    );
+    const initials = String(G.playerName || 'Du').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const prof = h('div.hub-prof', { title: 'Fahrername ändern', onclick: () => this.promptText('Dein Fahrername (für Rennen, Karriere und Mehrspieler)', G.playerName || 'Du', (v) => { if (v && v.trim()) { G.playerName = v.trim().slice(0, 24); Game.saveSettings(); this.show('main', { noHistory: true }); } }) },
+      h('span.av', { style: { background: c0 } }, initials), h('div', h('b', G.playerName || 'Du'), h('small', `#${G.number} · ${team.name}`)));
+    return h('section.screen.hub',
+      h('div.hub-top', h('div', h('div.brand', 'APEX ', h('b', 'FORMULA')), h('div.brand-sub', 'World Championship')), prof),
+      tiles,
+      h('div.hub-small',
+        btn('Einstellungen', () => this.show('settings')),
         btn('Lenkrad kalibrieren', () => this.openWizard()),
         btn('Eingabetest', () => this.show('inputTest')),
-        btn('Einstellungen', () => this.show('settings')),
+        btn('Mods', () => this.show('mods')),
         btn('Hilfe & Steuerung', () => this.show('help')),
         btn(document.fullscreenElement ? 'Vollbild beenden' : 'Vollbild', () => Game.toggleFullscreen()),
       ),
-      h('div.foot', `${APP_NAME} · Version `, h('span', APP_VERSION), ' · Alle Teams, Fahrer, Strecken und Marken sind frei erfunden. · Speicher: ', h('span', Save.available ? 'lokal aktiv' : 'nicht verfügbar (Einstellungen gelten nur bis zum Neuladen)')),
-      devs,
+      h('div.hub-foot', h('span', `${APP_NAME} · Version `, h('span', APP_VERSION), ' · Alle Teams, Fahrer, Strecken und Marken sind frei erfunden. · Speicher: ', Save.available ? 'lokal aktiv' : 'nicht verfügbar'), devs),
     );
   },
   _updateDevPill(el) {
@@ -139,6 +177,7 @@ const UI = {
             h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Kurven: ' + corners),
           )),
           h('div.card', h('h3', 'Strecke wählen'), chips(TRACK_ORDER.map(id => ({ value: id, label: TRACKS[id].name })), track.id, v => { S.game.track = v; Game.saveSettings(); this.show('drive', { noHistory: true }); })),
+          eraCard(S.game.era || 'e2026', (id) => { Game.setEra(id); this.show('drive', { noHistory: true }); }),
           h('div.card', h('h3', 'Wetter & Tageszeit'),
             chips(WEATHER_ORDER.map(id => ({ value: id, label: WEATHER_TYPES[id].name })), S.game.weather || 'dry', v => { S.game.weather = v; Game.saveSettings(); }),
             h('div', { style: { height: '8px' } }),
@@ -156,7 +195,7 @@ const UI = {
           ),
           h('div.card', h('h3', 'Startkamera'), chips(CAMERA_MODES.filter(m => m !== 'tv').map(m => ({ value: m, label: CAMERA_NAMES[m] })), S.camera.mode, v => { S.camera.mode = v; Game.saveSettings(); })),
           h('div.card', h('h3', 'Ghost'), fieldRow('Bestrunde als Ghost', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], S.game.ghost !== false, v => { S.game.ghost = v; Game.saveSettings(); })),
-            h('p', { style: { fontSize: '12px' } }, (Save.get('bestLaps', {})[track.id] ? `Gespeicherte Bestzeit: ${fmtTime(Save.get('bestLaps', {})[track.id].time)}` : 'Noch keine Bestzeit gespeichert.'))),
+            h('p', { style: { fontSize: '12px' } }, (Save.get('bestLaps', {})[trackKey(track.id)] ? `Gespeicherte Bestzeit: ${fmtTime(Save.get('bestLaps', {})[trackKey(track.id)].time)}` : 'Noch keine Bestzeit gespeichert.'))),
           h('div.hint', 'In der Testfahrt ist der ', h('b', 'Überholmodus'), ' einmal pro Runde frei verfügbar (sonst nur innerhalb 1 s hinter dem Vordermann am Erkennungspunkt).'),
           h('div.actions', btn('Losfahren', () => Game.startTestDrive(), 'primary', '▶'), btn('Fahrzeug-Setup', () => this.show('setup')), btn('Zurück', () => this.back(), 'ghost')),
         ),
@@ -224,6 +263,7 @@ const UI = {
         h('div.col',
           h('div.card', h('h3', 'Rennen & Regeln'),
             h('p', '• ', h('b', 'Start:'), ' Fünf rote Lichter gehen im Sekundentakt an; wenn alle erlöschen, geht es los. Bis dahin hält das Spiel dein Auto über die Kupplung – Gas geben zum Vorbereiten ist erlaubt (mit Traktionskontrolle Vollgas, ohne lieber dosiert).'),
+            h('p', '• ', h('b', 'Epochen:'), ' 1990–2010 ohne ERS und DRS (Saugmotoren, lange Schaltzeiten, 1990 schwere Lenkung), 2014–2022 Hybrid mit DRS (Heckflügel öffnet in den Zonen nur bei < 1 s Abstand am Erkennungspunkt), 2026 aktive Aero und Überholmodus. Jede Epoche hat ihr eigenes Fahrerfeld; Bestzeiten werden getrennt gespeichert.'),
             h('p', '• ', h('b', 'Wiederholung:'), ' Im Pausemenü (letzte 20 s) und im Ergebnis (ganzes Rennen). Zeitleiste mit Ereignissen (grün = Überholmanöver, gelb = Kontakt, rot = Ausfall), Tempo ¼× bis 4×, alle Kameras plus Helikopter, automatische Regie. Am Lenkrad: Schaltwippen = Auto wechseln, Kamera-Knopf, Pause-Knopf = zurück.'),
             h('p', '• ', h('b', 'Qualifying:'), ' Freie Fahrt gegen die Uhr (5/10/15 min). Nur gültige Runden zählen; läuft die Zeit ab, darfst du die begonnene Runde beenden. Die KI-Zeiten erscheinen nach und nach, das Ergebnis ist die Startaufstellung.'),
             h('p', '• ', h('b', 'Meisterschaft:'), ' Vier Rennen (alle Strecken), Punkte 25-18-15-12-10-8-6-4-2-1 plus 1 für die schnellste Runde in den Top 10. Spielstand wird automatisch gespeichert.'),
@@ -889,8 +929,12 @@ const UI = {
     this._cls('hudSocBar', 'harv', veh.harvesting); this._cls('hudSocBar', 'boost', veh.overtakeActive);
     const left = Math.max(0, veh.spec.ers.lapDeployMJ - veh.lapDeploy / 1e6);
     this._txt('hudErsMode', `${ERS_NAMES[veh.ersMode]} · ${fmtNum(left, 1)} MJ`);
-    this._cls('indOT', 'pink', veh.overtakeActive); this._cls('indOT', 'on', !veh.overtakeActive && veh.overtakeAvailable);
-    const aeroTxt = veh.aeroFlap > 0.5 ? 'GERADE' : 'KURVE';
+    const ersOn = veh.spec.ers.maxKW > 0, aMode = veh.spec.aero.mode || 'active';
+    if (this.hudCache.ersOn !== ersOn) { this.hudCache.ersOn = ersOn; $('hudSoc').parentElement.style.display = ersOn ? '' : 'none'; $('hudSocBar').style.display = ersOn ? '' : 'none'; }
+    if (!ersOn) this._txt('hudErsMode', 'Saugmotor · kein ERS');
+    this._txt('indOT', veh.spec.ers.overtake ? 'ÜBERHOL' : (aMode === 'drs' ? 'DRS' : ''));
+    this._cls('indOT', 'pink', veh.overtakeActive || (aMode === 'drs' && veh.aeroFlap > 0.5)); this._cls('indOT', 'on', veh.spec.ers.overtake ? (!veh.overtakeActive && veh.overtakeAvailable) : (aMode === 'drs' && veh.drsOK && veh.inAeroZone));
+    const aeroTxt = aMode === 'none' ? '' : veh.aeroFlap > 0.5 ? (aMode === 'drs' ? 'DRS OFFEN' : 'GERADE') : (aMode === 'drs' ? 'DRS' : 'KURVE');
     this._txt('indAero', aeroTxt); this._cls('indAero', 'green', veh.aeroFlap > 0.5); this._cls('indAero', 'blue', veh.aeroFlap <= 0.5 && veh.inAeroZone);
     // Reifen
     this._txt('hudTyreName', '· ' + COMPOUNDS[veh.compound].name);
