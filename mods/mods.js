@@ -8,4 +8,5 @@
 
 ApexMods.load('beispiel_strecke.js');      // Beispiel: Seeblick-Ring (Strecke aus Eckpunkten)
 // ApexMods.load('beispiel_team.js');      // Beispiel: eigenes Team mit zwei Fahrern
-// ApexMods.load('beispiel_auto.js');      // Beispiel: eigene Epoche / eigenes Auto
+// ApexMods.load('beispiel_auto.js');      // Beispiel: eigene Epoche / eigenes Auto mit eigenem Modell
+// ApexMods.load('beispiel_oldtimer.js');  // Beispiel: Oldtimer „Zigarre“ – komplett eigenes Modell ohne Flügel

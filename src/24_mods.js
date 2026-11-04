@@ -116,9 +116,14 @@ function estimateAILimits(spec) {
   const cl = (x) => x.clFW + x.clRW + x.clFloor, cd = (x) => x.cdBody + x.cdRW + x.cdFW;
   const mu = (spec.tyre && spec.tyre.muScale) || 1, aeroR = (cl(a) / spec.mass) / (cl(a0) / S0.mass);
   const ice = Math.max(...spec.engine.curve.map(([r, T]) => T * r * Math.PI / 30)) / 1000;
+  // mechanischer Grip: Lastverlagerung (Schwerpunkthöhe / Spur bzw. Radstand) und Reifenbreite
+  const tw = Math.pow((spec.tyreWidthF + spec.tyreWidthR) / (S0.tyreWidthF + S0.tyreWidthR), 0.3);
+  const trk = (x) => (x.trackF + x.trackR) / 2;
+  const fLat = clamp(Math.sqrt((S0.cgHeight / trk(S0)) / (spec.cgHeight / trk(spec))) * tw, 0.6, 1.1);
+  const fBrk = clamp(Math.sqrt((S0.cgHeight / S0.wheelbase) / (spec.cgHeight / spec.wheelbase)) * tw, 0.6, 1.1);
   return {
-    lat0: B.lat0 * mu, latAero: B.latAero * aeroR * mu, latMax: B.latMax * Math.min(1.25, 0.55 * mu + 0.45 * aeroR),
-    brk0: B.brk0 * mu, brkAero: B.brkAero * aeroR * mu, brkMax: B.brkMax * Math.min(1.25, 0.5 * mu + 0.5 * aeroR),
+    lat0: B.lat0 * mu * fLat, latAero: B.latAero * aeroR * mu, latMax: B.latMax * Math.min(1.25, 0.55 * mu * fLat + 0.45 * aeroR),
+    brk0: B.brk0 * mu * fBrk, brkAero: B.brkAero * aeroR * mu, brkMax: B.brkMax * Math.min(1.25, 0.5 * mu * fBrk + 0.5 * aeroR),
     power: Math.round(B.power * (ice + spec.ers.maxKW) / 750 / 10000) * 10000, mass: spec.mass, drag: B.drag * (cd(a) / cd(a0)) * (S0.mass / spec.mass),
   };
 }
@@ -155,7 +160,8 @@ function applyMods(list) {
         const spec = deepAssign(JSON.parse(JSON.stringify(CAR_SPEC_BASE)), e.spec || {});
         if (!spec.aero.mode) spec.aero.mode = 'active';
         if (!spec.ers.maxKW) spec.ers = Object.assign(spec.ers, { maxKW: 0, battMJ: 0.001, maxCrankNm: 0, lapDeployMJ: 0, liftKW: { save: 0, balanced: 0, attack: 0 } });
-        const era = { id: e.id, year: e.year || 2026, name: e.name || e.id, title: e.title || e.name || e.id, engineName: e.engineName || 'Mod-Motor', desc: e.desc || 'Mod-Fahrzeug', halo: e.halo !== false, width: e.width || 1, cylinders: e.cylinders || 6,
+        if (e.model) validateCarModel(e.model);
+        const era = { id: e.id, year: e.year || 2026, model: e.model || null, name: e.name || e.id, title: e.title || e.name || e.id, engineName: e.engineName || 'Mod-Motor', desc: e.desc || 'Mod-Fahrzeug', halo: e.halo !== false, width: e.width || 1, cylinders: e.cylinders || 6,
           spec: e.spec || {}, ai: e.ai || estimateAILimits(spec), drivers: e.drivers || null, mod: true };
         ERAS[e.id] = era; if (!ERA_ORDER.includes(e.id)) ERA_ORDER.push(e.id);
         rep.items.push('Epoche ' + era.name);

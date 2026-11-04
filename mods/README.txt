@@ -10,7 +10,8 @@ Hier kommen eigene Strecken, Teams, Fahrer und Autos (Epochen) hinein.
     README.txt            ← diese Anleitung
     beispiel_strecke.js   ← Beispiel: Strecke (aktiv)
     beispiel_team.js      ← Beispiel: Team + Fahrer (in mods.js auskommentiert)
-    beispiel_auto.js      ← Beispiel: Auto/Epoche (in mods.js auskommentiert)
+    beispiel_auto.js      ← Beispiel: Auto/Epoche mit eigenem Modell (in mods.js auskommentiert)
+    beispiel_oldtimer.js  ← Beispiel: komplett eigenes Modell „Zigarre“ (in mods.js auskommentiert)
     vorlagen/             ← fertige KI-Prompts zum Erstellen neuer Mods
 
 
@@ -153,6 +154,65 @@ Höchstgeschwindigkeit ergibt sich aus Leistung, Luftwiderstand und dem
 höchsten Gang (Übersetzung × 4,0 Achse).
 Eigene Fahrer für die Epoche: im Fahrer-Eintrag era: 'meineepoche' setzen,
 oder in der Epoche drivers: [ ... ] (ersetzt das automatische Fahrerfeld).
+
+Das Aussehen (Bauform je Baujahr) richtet sich nach year. Ein komplett
+eigenes Modell beschreibst du mit model: { ... } – siehe Abschnitt 6b.
+
+
+6b. EIGENE FAHRZEUGMODELLE (model)
+----------------------------------
+Das Auto wird genauso gebaut wie das eingebaute Modell: aus Querschnitten
+entlang der Fahrzeuglänge (wie Spanten bei einem Boot), Flügelprofilen und
+einfachen Formen. Alles sind Zahlen in der Mod-Datei – kein 3D-Programm,
+keine Zusatzdateien, funktioniert in jedem Browser (auch Firefox).
+Beispiele: beispiel_auto.js (eigene Nase + Teile) und beispiel_oldtimer.js
+(komplett eigene „Zigarre“ ohne Flügel).
+
+Koordinaten (Meter, vom Schwerpunkt aus):
+  z = Länge:  vorne NEGATIV, hinten positiv   (Nasenspitze ≈ -2.7, Heck ≈ +2.0)
+  x = Breite: rechts positiv
+  y = Höhe:   oben positiv (Fahrzeugboden ≈ -0.25, Helm ≈ +0.5)
+Das Modell ist für 3,40 m Radstand gezeichnet (Vorderachse z ≈ -1.9,
+Hinterachse ≈ +1.5) und wird automatisch auf spec.wheelbase und width
+gestreckt. Die Räder setzt immer das Spiel – genau dorthin, wo die Physik sie hat.
+
+Querschnitt (Superellipse): { z, w, h, y, n, x }
+  w = Breite, h = Höhe, y = Höhe der Mitte, x = seitlicher Versatz (Standard 0)
+  n = Eckigkeit: 2 = rund/oval, 3 = abgerundet eckig, 4–6 = kastig
+  Die Querschnitte einer Liste müssen von vorne nach hinten sortiert sein
+  (z aufsteigend); dazwischen wird weich interpoliert.
+
+Bauteile (alle optional – was fehlt, kommt vom Standardauto 2026):
+  nose:        Nase bis zur Cockpit-Vorderkante (Lackierung)
+  cockpit:     Cockpitwanne, oben offen (Lackierung)
+  engineCover: Motorabdeckung bis zum Heck (Lackierung)
+  airbox:      Lufteinlass über dem Kopf          – airbox: [] entfernt ihn
+  sidepod:     RECHTER Seitenkasten (x > 0), links wird gespiegelt – sidepod: [] entfernt
+  floor:       Unterboden-Umriss [[x, z], ...]
+  frontWing:   { span, chord, thick, camber, y, z, flaps }   (flaps 0–2)
+  rearWing:    { span, chord, thick, camber, y, z, flaps }   (flaps 0–1)
+     span = Spannweite, chord = Profiltiefe, thick = Dicke (Anteil), camber = Wölbung
+  look:        Schalter, die sonst das Baujahr bestimmt:
+     { nose: 'low'|'mid'|'high', fin, beam, barge, grooves, diffuser,
+       frontWing: false, rearWing: false, fw: 0.8, rwX: 0.76, rwY: 0.1 }
+     fin = Haifischflosse, beam = Beam-Wing, barge = Bargeboards,
+     grooves = Rillenreifen, fw = Frontflügelbreite, rwX/rwY = Heckflügel schmaler/höher
+     (bei eigener nose gilt immer deine Form, ohne Höhenvarianten)
+  parts:       Zusatzteile (bis 80), jedes mit mat und optional mirror: true
+               (dann zusätzlich spiegelbildlich auf der linken Seite):
+     { type: 'loft',  sections: [Querschnitte], cap: true }
+     { type: 'box',   size: [Breite, Höhe, Länge], pos: [x, y, z], rot: [Grad x, y, z], r: Rundung }
+     { type: 'wing',  span, chord, thick, camber, pos: [x, y, z], rotX: Grad }
+     { type: 'cyl',   r (oder r1 vorne/oben, r2), len, pos, rot }   – Zylinder steht senkrecht;
+                      rot: [90, 0, 0] legt ihn längs, [0, 0, 90] quer
+     { type: 'sphere', r, pos, scale: [x, y, z] }
+     mat: 'paint' (Lackierung mit Startnummer), 'team' / 'team2' (Teamfarbe 1/2),
+          'carbon', 'dark', 'chrome', 'glass'
+
+Tipp: Erst nur eine Kleinigkeit ändern (z. B. nose), im Hauptmenü auf die
+Garage schauen, dann weitermachen. Fehler (z. B. falsch sortierte z-Werte)
+zeigt das Menü „Mods“ mit genauer Stelle an. Abgefallene Flügel bei Schaden
+und die Physik funktionieren auch mit eigenem Modell.
 
 
 7. RECHTLICHES

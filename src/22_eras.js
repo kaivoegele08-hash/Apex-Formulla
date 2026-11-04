@@ -213,6 +213,80 @@ function eraOf(id) { return ERAS[id] || ERAS.e2026; }
  * Epoche aktivieren: CAR_SPEC/AI_LIMITS/DRIVERS werden an Ort und Stelle ersetzt, damit alle Module
  * (Physik, KI, Grafik, Audio) ohne Umbau die neuen Werte sehen. Gibt true zurück, wenn sich etwas geändert hat.
  */
+// ---------------------------------------------------------------------------
+//  Fahrzeugmodell als Daten (wie das eingebaute Modell gebaut ist – Mods können jeden Teil ersetzen)
+//  Koordinaten in Metern: vorne = −z, rechts = +x, oben = +y, Ursprung = Schwerpunkt.
+//  Bezugsauto: Radstand 3,40 m (Vorderachse z ≈ −1,9, Hinterachse z ≈ +1,5), wird auf den Radstand der Epoche gestreckt.
+//  Querschnitt { z, w (Breite), h (Höhe), y (Mitte), n (Eckigkeit: 2 = rund/oval, 4+ = kastig), x (seitlicher Versatz) }
+// ---------------------------------------------------------------------------
+const CAR_MODEL_BASE = {
+  nose: [
+    { z: -2.68, w: 0.09, h: 0.07, y: -0.105, n: 2.2 }, { z: -2.48, w: 0.20, h: 0.12, y: -0.088, n: 2.5 },
+    { z: -2.08, w: 0.29, h: 0.19, y: -0.045, n: 2.8 }, { z: -1.62, w: 0.37, h: 0.29, y: 0.025, n: 3.0 },
+    { z: -1.16, w: 0.47, h: 0.39, y: 0.075, n: 3.3 }, { z: -0.82, w: 0.60, h: 0.47, y: 0.085, n: 3.6 },
+  ],
+  cockpit: [
+    { z: -0.82, w: 0.60, h: 0.47, y: 0.085, n: 3.6 }, { z: -0.45, w: 0.70, h: 0.47, y: 0.08, n: 3.8 },
+    { z: -0.05, w: 0.78, h: 0.47, y: 0.075, n: 3.8 }, { z: 0.16, w: 0.78, h: 0.50, y: 0.09, n: 3.6 },
+  ],
+  engineCover: [
+    { z: 0.12, w: 0.74, h: 0.50, y: 0.09, n: 3.4 }, { z: 0.45, w: 0.62, h: 0.52, y: 0.15, n: 3.0 },
+    { z: 0.95, w: 0.44, h: 0.42, y: 0.13, n: 2.8 }, { z: 1.45, w: 0.26, h: 0.30, y: 0.09, n: 2.6 },
+    { z: 1.95, w: 0.12, h: 0.16, y: 0.07, n: 2.4 },
+  ],
+  airbox: [
+    { z: 0.06, w: 0.20, h: 0.20, y: 0.55, n: 2.6 }, { z: 0.25, w: 0.27, h: 0.30, y: 0.54, n: 2.8 },
+    { z: 0.6, w: 0.24, h: 0.30, y: 0.47, n: 2.6 }, { z: 1.05, w: 0.12, h: 0.18, y: 0.34, n: 2.4 }, { z: 1.4, w: 0.04, h: 0.05, y: 0.27, n: 2.2 },
+  ],
+  // rechter Seitenkasten (x > 0), der linke wird gespiegelt
+  sidepod: [
+    { z: -0.52, w: 0.34, h: 0.34, y: -0.02, n: 3.6, x: 0.50 }, { z: -0.30, w: 0.42, h: 0.40, y: 0.0, n: 3.8, x: 0.50 },
+    { z: 0.30, w: 0.40, h: 0.36, y: -0.03, n: 3.4, x: 0.47 }, { z: 0.90, w: 0.28, h: 0.26, y: -0.08, n: 3.0, x: 0.40 },
+    { z: 1.40, w: 0.12, h: 0.15, y: -0.12, n: 2.6, x: 0.30 },
+  ],
+  // Unterboden: Umriss [x, z] im Uhrzeigersinn
+  floor: [[-0.30, -1.35], [-0.62, -0.95], [-0.74, -0.55], [-0.76, 0.95], [-0.62, 1.30], [-0.52, 1.42], [0.52, 1.42], [0.62, 1.30], [0.76, 0.95], [0.74, -0.55], [0.62, -0.95], [0.30, -1.35]],
+  frontWing: { span: 1.82, chord: 0.30, thick: 0.07, camber: 0.06, y: -0.165, z: -2.86, flaps: 2 },
+  rearWing: { span: 1.0, chord: 0.26, thick: 0.09, camber: 0.07, y: 0.50, z: 2.08, flaps: 1 },
+  look: {},     // optional: { nose: 'low'|'mid'|'high', fin, beam, barge, grooves, fw, rwX, rwY, frontWing, rearWing, diffuser } – sonst nach Baujahr
+  parts: [],    // zusätzliche Teile (siehe mods/README.txt)
+};
+const CAR_PART_TYPES = ['loft', 'box', 'wing', 'cyl', 'sphere'];
+const CAR_PART_MATS = ['paint', 'carbon', 'team', 'team2', 'dark', 'chrome', 'glass'];
+/** Mod-Modell mit dem Standardmodell zusammenführen (Listen ersetzen, Flügel-Objekte ergänzen) */
+function carModelOf(M) {
+  const B = CAR_MODEL_BASE; if (!M) return B;
+  const out = Object.assign({}, B, M);
+  out.frontWing = Object.assign({}, B.frontWing, M.frontWing || {}); out.rearWing = Object.assign({}, B.rearWing, M.rearWing || {});
+  out.look = Object.assign({}, M.look || {}); out.parts = M.parts || [];
+  out.customNose = !!M.nose;
+  return out;
+}
+/** Modelldaten einer Mod prüfen – wirft eine verständliche Fehlermeldung */
+function validateCarModel(M) {
+  if (!M || typeof M !== 'object') throw new Error('model muss ein Objekt sein');
+  const num = (v, path) => { if (typeof v !== 'number' || !isFinite(v)) throw new Error(`model.${path}: Zahl erwartet`); };
+  const secs = (L, path) => {
+    if (!Array.isArray(L) || L.length < 2) throw new Error(`model.${path}: mindestens 2 Querschnitte nötig`);
+    L.forEach((q, i) => { for (const k of ['z', 'w', 'h']) num(q[k], `${path}[${i}].${k}`); if (q.w <= 0 || q.h <= 0) throw new Error(`model.${path}[${i}]: w und h müssen > 0 sein`); for (const k of ['y', 'n', 'x']) if (q[k] !== undefined) num(q[k], `${path}[${i}].${k}`); if (i && q.z <= L[i - 1].z) throw new Error(`model.${path}[${i}].z muss größer sein als beim Querschnitt davor (von vorne nach hinten)`); });
+  };
+  for (const k of ['nose', 'cockpit', 'engineCover', 'airbox', 'sidepod']) if (M[k] !== undefined && !((k === 'airbox' || k === 'sidepod') && Array.isArray(M[k]) && !M[k].length)) secs(M[k], k);
+  if (M.floor !== undefined) { if (!Array.isArray(M.floor) || M.floor.length < 3) throw new Error('model.floor: mindestens 3 Punkte [x, z]'); M.floor.forEach((p, i) => { num(p[0], `floor[${i}][0]`); num(p[1], `floor[${i}][1]`); }); }
+  for (const w of ['frontWing', 'rearWing']) if (M[w] !== undefined) for (const [k, v] of Object.entries(M[w])) num(v, `${w}.${k}`);
+  (M.parts || []).forEach((p, i) => {
+    if (!CAR_PART_TYPES.includes(p.type)) throw new Error(`model.parts[${i}].type: eines von ${CAR_PART_TYPES.join(', ')}`);
+    if (p.mat !== undefined && !CAR_PART_MATS.includes(p.mat)) throw new Error(`model.parts[${i}].mat: eines von ${CAR_PART_MATS.join(', ')}`);
+    if (p.type === 'loft') secs(p.sections, `parts[${i}].sections`);
+    for (const k of ['pos', 'rot', 'size', 'scale']) if (p[k] !== undefined) { if (!Array.isArray(p[k]) || p[k].length !== 3) throw new Error(`model.parts[${i}].${k}: [x, y, z] erwartet`); p[k].forEach((v, j) => num(v, `parts[${i}].${k}[${j}]`)); }
+    if (p.type === 'box' && !p.size) throw new Error(`model.parts[${i}]: box braucht size [Breite, Höhe, Länge]`);
+    if (p.type === 'wing') { num(p.span, `parts[${i}].span`); num(p.chord, `parts[${i}].chord`); }
+    if (p.type === 'cyl') { num(p.len, `parts[${i}].len`); if (p.r === undefined && p.r1 === undefined) throw new Error(`model.parts[${i}]: cyl braucht r (oder r1/r2)`); }
+    if (p.type === 'sphere') num(p.r, `parts[${i}].r`);
+  });
+  if ((M.parts || []).length > 80) throw new Error('model.parts: höchstens 80 Teile');
+  return true;
+}
+
 function applyEra(id) {
   const E = eraOf(id);
   if (ACTIVE_ERA === E.id && applyEra._done) return false;
