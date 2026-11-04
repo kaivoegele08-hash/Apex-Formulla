@@ -17,11 +17,11 @@ const AI_LIMITS = {
 const AI_LIMITS_DEFAULT = Object.assign({}, AI_LIMITS);   // Standardauto (Epoche 2026)
 
 /** Schalter für Verhaltensweisen (Tests/Feinabstimmung) */
-const AI_TUNE = { brakeGain: 0.23, latMaxK: 1, brakeMod: true, draft: true, defend: true, door: true, lateBrake: true, edgeYield: false, startCare: true, dirtyAir: true, minCurv: true };   // edgeYield: im Test (36 Starts) schlechter
+const AI_TUNE = { lineBlend: 0.75, offLineD0: 1, offLineK: 0.035, dirtyK: 0.12, manEdge: 2.6, latGuard: true, edgeMargin: 1.3, offLineSlow: true, globalLine: true, brakeGain: 0.23, latMaxK: 1, brakeMod: true, draft: true, defend: true, door: true, lateBrake: true, edgeYield: false, startCare: true, dirtyAir: true, minCurv: true };   // edgeYield: im Test (36 Starts) schlechter
 
 class RacingLine {
   /** margin = Abstand der Fahrzeugmitte zur weißen Linie (m) */
-  constructor(track, { margin = 1.05 } = {}) {
+  constructor(track, { margin = 1.3 } = {}) {
     const T = track, N = T.N;
     this.track = T; this.N = N;
     const off = this.off = new Float32Array(N);
@@ -42,7 +42,14 @@ class RacingLine {
       }
     }
     sync();
-    if (AI_TUNE.minCurv) this._refine(T, off, lim, px, pz);
+    if (AI_TUNE.globalLine) {
+      // Mischlinie: Minimalkrümmung (außen–innen–außen) mit der geglätteten Mittelweg-Linie mischen – im Verkehr robuster
+      const base = Float32Array.from(off);
+      this._minCurvature(T, off, lim, px, pz);
+      const a = AI_TUNE.lineBlend ?? 1;
+      if (a < 1) for (let j = 0; j < N; j++) { off[j] = a * off[j] + (1 - a) * base[j]; px[j] = T.X[j] + T.RX[j] * off[j]; pz[j] = T.Z[j] + T.RZ[j] * off[j]; }
+    }
+    else if (AI_TUNE.minCurv) this._refine(T, off, lim, px, pz);
     this.X = Float32Array.from(px); this.Z = Float32Array.from(pz);
     // Bogenlänge und Krümmung der Linie (3-Punkt-Kreis über ±3 Samples, geglättet)
     this.DS = new Float32Array(N); this.K = new Float32Array(N);
@@ -63,6 +70,47 @@ class RacingLine {
    * Die reine Glättung zieht die Linie auf durchgehend gleichsinnigen Kurven nach innen (kürzester Weg);
    * hier darf jeder Punkt quer wandern, wenn die Summe κ² seiner Umgebung dadurch sinkt.
    */
+  /**
+   * Globale Minimalkrümmung: Σ |P(i-1) − 2·P(i) + P(i+1)|² über die ganze Runde minimieren (projizierter Gradient
+   * mit Nesterov-Impuls, Querversatz innerhalb der Streckenbreite). Erst grob (alle ~10 m), dann fein (alle Samples).
+   * Ergebnis: außen anfahren – innen am Scheitelpunkt – außen hinaus, Geraden als Verbindung der Kurvenausgänge.
+   */
+  _minCurvature(T, off, lim, px, pz) {
+    const N = this.N;
+    const solve = (idx, o, iters, eta) => {
+      const M = idx.length, X = new Float64Array(M), Z = new Float64Array(M), RX = new Float64Array(M), RZ = new Float64Array(M), Lm = new Float64Array(M);
+      for (let i = 0; i < M; i++) { const j = idx[i]; X[i] = T.X[j]; Z[i] = T.Z[j]; RX[i] = T.RX[j]; RZ[i] = T.RZ[j]; Lm[i] = lim[j]; }
+      const y = Float64Array.from(o), prev = Float64Array.from(o), Dx = new Float64Array(M), Dz = new Float64Array(M);
+      for (let it = 0; it < iters; it++) {
+        const mom = it / (it + 3);
+        for (let i = 0; i < M; i++) y[i] = o[i] + mom * (o[i] - prev[i]);
+        for (let i = 0; i < M; i++) {
+          const a = i ? i - 1 : M - 1, b = i + 1 < M ? i + 1 : 0;
+          Dx[i] = (X[a] + RX[a] * y[a]) - 2 * (X[i] + RX[i] * y[i]) + (X[b] + RX[b] * y[b]);
+          Dz[i] = (Z[a] + RZ[a] * y[a]) - 2 * (Z[i] + RZ[i] * y[i]) + (Z[b] + RZ[b] * y[b]);
+        }
+        prev.set(o);
+        for (let i = 0; i < M; i++) {
+          const a = i ? i - 1 : M - 1, b = i + 1 < M ? i + 1 : 0;
+          const gx = Dx[a] - 2 * Dx[i] + Dx[b], gz = Dz[a] - 2 * Dz[i] + Dz[b];
+          o[i] = clamp(y[i] - eta * 2 * (gx * RX[i] + gz * RZ[i]), -Lm[i], Lm[i]);
+        }
+      }
+      return o;
+    };
+    // grob: jedes k-te Sample
+    const k = Math.max(2, Math.round(10 / T.ds)), idx = []; for (let j = 0; j < N; j += k) idx.push(j);
+    const oc = solve(idx, Float64Array.from(idx.map(j => off[j])), 6000, 0.03);
+    // linear auf alle Samples verteilen
+    for (let i = 0; i < idx.length; i++) {
+      const j0 = idx[i], j1 = i + 1 < idx.length ? idx[i + 1] : N, o0 = oc[i], o1 = oc[(i + 1) % idx.length];
+      for (let j = j0; j < j1; j++) off[j] = clamp(o0 + (o1 - o0) * (j - j0) / (j1 - j0), -lim[j], lim[j]);
+    }
+    // fein: alle Samples
+    const all = []; for (let j = 0; j < N; j++) all.push(j);
+    const of = solve(all, Float64Array.from(off), 1500, 0.03);
+    for (let j = 0; j < N; j++) { off[j] = of[j]; px[j] = T.X[j] + T.RX[j] * off[j]; pz[j] = T.Z[j] + T.RZ[j] * off[j]; }
+  }
   _refine(T, off, lim, px, pz) {
     const N = this.N, st = 4;
     const kap = (a, b, c) => {
@@ -258,7 +306,7 @@ class AIDriver {
     const cornerSoon = kMax > 0.006, inside = kSum > 0 ? 1 : -1;
     if (this.passSide && lead) want = (lead.vehicle.lateral + this.passSide * 3.4) - lineOff;
     // Windschatten: auf der Geraden direkt hinter dem Vordermann bleiben
-    else if (AI_TUNE.draft && lead && !cornerSoon && leadDs > 8 && leadDs < 50 && v.vLong > 45) want = lead.vehicle.lateral - lineOff;
+    else if (AI_TUNE.draft && lead && !cornerSoon && leadDs > 8 && leadDs < 50 && v.vLong > 45 && (!AI_TUNE.latGuard || Math.abs(lead.vehicle.lateral - lineOff) < 3)) want = lead.vehicle.lateral - lineOff;
     // Verteidigen: Innenseite vor der Kurve zudecken (ein Spurwechsel je Kurve), Tür auf der Geraden einmal schließen
     const threat = chaser && chaserDs > -18 && (chaser.vehicle.vLong > v.vLong + 0.8 || (chaser.ai && chaser.ai.passSide) || (chaser.player && chaserDs > -14));
     const defends = AI_TUNE.defend && !this.noPass && threat && !this.passSide && !this.blue && time - this.launchAt > 8 && (chaser.player || P.aggression > 0.4);
@@ -306,15 +354,20 @@ class AIDriver {
     if (this.pit) { this._pitControl(h, ctx); return; }
     this.trafT -= h; this.passT += h; this.passCool -= h; this.doorT -= h;
     if (this.trafT <= 0) { this.trafT = 1 / 30; this._traffic(ctx.cars || [], ctx.me, ctx.time); this._damageCheck(); }
-    const lr = this.along ? 5 : 3; this.latOff += clamp(this.latWant - this.latOff, -h * lr, h * lr);
+    const lr = this.along ? 5 : (AI_TUNE.latGuard && Math.abs(this.latWant) < 0.3 && !this.passSide ? 6 : 3); this.latOff += clamp(this.latWant - this.latOff, -h * lr, h * lr);
+    // Versatz nie über den Randabstand hinaus (die Ideallinie wechselt auf Geraden die Seite – ein alter Versatz läge sonst neben der Strecke)
+    if (AI_TUNE.latGuard) { const hw0 = T.HW[v.trackIdx] - (AI_TUNE.edgeMargin || 1.05), l0 = line.off[v.trackIdx]; this.latOff = clamp(this.latOff, -hw0 - l0, hw0 - l0); }
+    this.manEdge = AI_TUNE.manEdge || 0;
     const spd = Math.max(4, v.vLong), j = v.trackIdx;
     // Spurführung: Pure Pursuit auf Ideallinie + Querversatz
     const La = 7.5 + 0.27 * spd;
     const fs = v.trackS + La, jf = (fs / T.ds), j0 = Math.floor(jf) % N, j1 = (j0 + 1) % N, fr = jf - Math.floor(jf);
-    const hwT = T.HW[j0] - 1.05;
+    const hwT = T.HW[j0] - (AI_TUNE.edgeMargin || 1.05);   // Abstand Fahrzeugmitte – weiße Linie (wie die Ideallinie)
     let lo = lerp(line.off[j0], line.off[j1], fr) + this.latOff;
     if (this.latMin <= this.latMax) lo = clamp(lo, this.latMin, this.latMax);
     lo = clamp(lo, -hwT, hwT);
+    // Manöver (Überholen, Windschatten, Ausweichen) nur bis 2 m vor die weiße Linie – nicht weiter hinaus als die Ideallinie selbst
+    if (this.manEdge && Math.abs(this.latOff) > 0.5) { const lo0 = lerp(line.off[j0], line.off[j1], fr), hwM = T.HW[j0] - this.manEdge; lo = clamp(lo, Math.min(-hwM, lo0), Math.max(hwM, lo0)); }
     const tx = lerp(T.X[j0], T.X[j1], fr) + T.RX[j0] * lo, tz = lerp(T.Z[j0], T.Z[j1], fr) + T.RZ[j0] * lo;
     const dx = tx - v.pos.x, dz = tz - v.pos.z;
     const lx = dx * v._right.x + dz * v._right.z, lz = dx * v._fwd.x + dz * v._fwd.z;
@@ -327,12 +380,24 @@ class AIDriver {
     let vt = this.speedProf[jt] * Math.sqrt(noise);
     const kAbs = Math.abs(line.K[jt]);
     if (kAbs > 0.004) vt *= 1 - clamp(Math.abs(this.latOff) * 0.012, 0, 0.06);
+    // tatsächlich neben der Ideallinie (Startgetümmel, abgedrängt): dort ist die Kurve enger → langsamer
+    if (AI_TUNE.offLineSlow) {
+      let kNear = kAbs; for (let q = 4; q < 40; q += 6) kNear = Math.max(kNear, Math.abs(line.K[(j + q) % N]));
+      const dev = Math.abs(v.lateral - line.off[j]);
+      const d0 = AI_TUNE.offLineD0 ?? 1.5, dk = AI_TUNE.offLineK ?? 0.02;
+      if (kNear > 0.003 && dev > d0) vt *= 1 - clamp((dev - d0) * dk, 0, 0.18);
+      // Untersteuern: Vorderräder rutschen → Gas weg, bis sie wieder greifen
+      const sf = Math.max(v.wheels[0].sComb, v.wheels[1].sComb);
+      if (sf > 1.35 && v.vLong > 15) vt = Math.min(vt, v.vLong * (1 - clamp((sf - 1.35) * 0.05, 0, 0.06)));
+    }
     // verwirbelte Luft kostet Abtrieb – auch beim Bremsen
-    vt *= 1 - 0.06 * v.dirtyAir;
+    vt *= 1 - (AI_TUNE.dirtyK ?? 0.06) * v.dirtyAir;
     if (this.blue) vt *= 0.97;
     // Ausbremsen: innen neben dem Gegner etwas später bremsen
     if (AI_TUNE.lateBrake && this.passSide && this.leader && this.leadDs < 5 && kAbs > 0.004 && Math.sign(line.K[jt]) === this.passSide) vt *= 1.012;
     vt *= this.yieldF;
+    // Stellen mit Track-Limits-Verwarnung: davor (bis 150 m) langsamer, je Verwarnung 4 %, höchstens 12 %
+    if (this.limitSpots) for (const o of this.limitSpots) { const d = ((o.s - v.trackS) % T.length + T.length) % T.length; if (d < 150) vt *= 1 - Math.min(0.12, 0.04 * o.n); }
     if (this.letByUntil && ctx.time < this.letByUntil) { vt *= 0.9; this.passSide = 0; }   // Teamorder: Teamkollegen vorbeilassen
     vt = Math.min(vt, this.followV);
     // Safety-Car-Kolonne: sanft auf 15 m hinter dem Vordermann (Bremsweg mit 8 m/s²)
@@ -374,7 +439,7 @@ class AIDriver {
     const W = this.v.wheels, tyreF = wetF * (cpd.mu / 1.84) * (W.reduce((a, w) => a + w.tyre.wearFactor() * Math.min(1, w.tyre.gripT + 0.015), 0) / 4);
     // verwirbelte Luft hinter einem Auto kostet Frontabtrieb → Kurven etwas langsamer (sonst Untersteuern ins Kiesbett)
     const da = AI_TUNE.dirtyAir ? this.v.dirtyAir || 0 : 0;
-    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.1 * (1 - H.rw) - 0.25 * (1 - H.floor)) * tyreF * (1 - this.caution) * (1 - 0.06 * wv) * (1 - 0.07 * da) * 200) / 200;
+    const f = Math.round((1 - 0.16 * (1 - H.fw) - 0.18 * (1 - H.rw) - 0.25 * (1 - H.floor) - 0.15 * (1 - Math.min(...H.susp))) * tyreF * (1 - this.caution) * (1 - 0.06 * wv) * (1 - 0.07 * da) * 200) / 200;
     if (f !== this.dmgF) { this.dmgF = f; this.speedProf = this.line.profile(this.prof.skill * f * (this.v.trackGrip || 1)); }
   }
   /**

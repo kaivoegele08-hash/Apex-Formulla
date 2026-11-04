@@ -356,7 +356,9 @@ class RaceSession {
       if (en.player) Events.emit('race:sector', data);
     } else if (type === 'limits') {
       en.warnings = data;
-      if (en.ai) en.ai.caution = Math.min(0.025, en.ai.caution + 0.006);   // nach Verwarnung vorsichtiger
+      if (en.ai) { en.ai.caution = Math.min(0.025, en.ai.caution + 0.006);   // nach Verwarnung vorsichtiger
+        const sp = (en.ai.limitSpots = en.ai.limitSpots || []), s0 = en.vehicle.trackS, L = this.track.length;
+        const hit = sp.find(o => Math.abs(((o.s - s0) % L + L + L / 2) % L - L / 2) < 60); if (hit) hit.n++; else sp.push({ s: s0, n: 1 }); }
       if (data <= 3) { if (en.player) Events.emit('race:limits', data, data === 3 ? 'Schwarz-weiße Flagge' : `Verwarnung ${data}/3`); }
       else { en.penalty += 5; this.msg(`${en.name}: 5 s Zeitstrafe (Track Limits)`, en, 'pen'); if (en.player) Events.emit('race:limits', data, '5 s Zeitstrafe'); }
     }

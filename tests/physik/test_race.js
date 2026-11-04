@@ -1,3 +1,4 @@
+if (process.env.OLDLINE) { AI_TUNE.globalLine = false; for (const k in GRIP_MAPS) delete GRIP_MAPS[k]; }
 // Rennen mit vollem KI-Feld: Start, Kollisionen, Schaden, Positionen, Zielflagge, Rechenzeit
 const h = PHYS_DT;
 for (const k of (process.env.OFF || '').split(',').filter(Boolean)) AI_TUNE[k] = false;

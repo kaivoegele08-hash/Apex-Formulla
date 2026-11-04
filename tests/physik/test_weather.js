@@ -1,3 +1,4 @@
+if (process.env.OLDLINE) { AI_TUNE.globalLine = false; for (const k in GRIP_MAPS) delete GRIP_MAPS[k]; }
 // Wetter: Nässe-Verlauf, Rundenzeiten, Reifenwechsel der KI (wechselhaft bzw. Dauerregen)
 const h = PHYS_DT, T = new TrackModel(TRACKS[process.env.TRACK || 'ringpark']), line = new RacingLine(T);
 let seed = +(process.env.SEED || 3); const rng = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
