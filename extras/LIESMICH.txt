@@ -28,6 +28,12 @@ SPIELEN
   (1990 bis 2026) – jeweils eigenes Auto, Fahrverhalten, Motorklang und
   Fahrerfeld. 1990–2010 ohne ERS/DRS, 2014–2022 mit DRS (öffnet nur bei
   < 1 s Abstand am Erkennungspunkt), 2026 mit aktiver Aero + Überholmodus.
+  „Mehrspieler“: Online-Lobby erstellen → Code (APEX-XXXXX) an Freunde geben,
+  die ihn unter „Beitreten“ eingeben. Ohne Internet (LAN): „Lobby ohne
+  Internet“ → für jeden Mitspieler einen Einladungs-Code kopieren, er schickt
+  einen Antwort-Code zurück. Freunde: Freundescode austauschen – dann siehst
+  du, wer online ist und wer gerade eine Lobby hostet. Alle brauchen dieselbe
+  Spielversion (und ggf. dieselben Mod-Strecken).
   „Karriere“: eigener Fahrer über mehrere Saisons. Verträge haben Bedingungen,
   Angebote hängen von Ergebnissen, Ruf und Teamstimmung ab. Jeder KI-Fahrer hat
   eine Beziehung zu dir (Kontakte, faire Duelle, Social-Media-Beiträge) –

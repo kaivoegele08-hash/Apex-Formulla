@@ -138,6 +138,12 @@ const CarContacts = {
   },
 };
 
+/** Startplatz k (0 = Pole) – identisch zu RaceSession._placeGrid (Mehrspieler: Client stellt sein Auto selbst auf) */
+function gridSlot(T, k) {
+  const L = T.length, s = L - 14 - k * 8.2, j = Math.floor(s / T.ds) % T.N, hw = T.HW[j];
+  return { s, lat: (k % 2 === 0 ? -1 : 1) * Math.min(2.7, hw * 0.34) };
+}
+
 /** Trefferrichtung Welt → Fahrzeugsystem (lx rechts, lz hinten; normiert) */
 function localDir(v, wx, wz) {
   const R = v.R.fromQuat(v.q).e;
@@ -257,7 +263,7 @@ class RaceSession {
       const v = new Vehicle(CAR_SPEC, e.setup || {});
       v.setCompound(e.compound || 'medium', 75);
       const en = {
-        idx, driver: e.driver, team: e.team, number: e.number, player: !!e.player, name: e.driver.name,
+        idx, driver: e.driver, team: e.team, number: e.number, player: !!e.player, remote: !!e.remote, netId: e.netId ?? null, name: e.driver.name,
         vehicle: v, ai: null, timing: new LapTiming(T, { mode: 'race' }),
         active: true, retired: false, finished: false, finishTime: null, penalty: 0, warnings: 0,
         distance: -1e9, pos: idx + 1, gridPos: idx + 1, marks: new Float64Array((this.laps + 3) * RACE_MARKS).fill(NaN), markIdx: -1,
@@ -265,7 +271,7 @@ class RaceSession {
         pitPlan: null, pitting: false, pitPilot: null, used: new Set([e.compound || 'medium']), stintStart: 0, penaltyServed: 0,
         teamIdx: Math.max(0, TEAMS.findIndex(t => t.id === e.team)), stopLap: 0.3 + this.rng() * 0.35,
       };
-      if (!e.player) {
+      if (!e.player && !e.remote) {
         const prof = e.profile || makeAIProfile(e.driver, opts.aiStrength ?? 1, this.rng);
         if ((opts.aiStrength ?? 1) > 1) v.trackGrip = 1 + ((opts.aiStrength ?? 1) - 1) * 0.6;   // über 100 %: etwas mehr Haftung
         if (e.trackGrip) v.trackGrip = (v.trackGrip || 1) * e.trackGrip;                     // Karriere: Teamstärke
@@ -282,6 +288,16 @@ class RaceSession {
   }
 
   /** Startplätze: versetzt in Zweierreihen hinter der Linie (8 m Abstand) */
+  /** Mehrspieler: Fahrzeug eines Mitspielers (Zustand vom Netz) – Zeitnahme/Distanz wie bei allen anderen */
+  _stepRemote(e, h, L) {
+    const v = e.vehicle;
+    v.netStep(h);
+    e.timing.step(h, v);
+    const tm = e.timing;
+    e.distance = tm.started ? tm.laps.length * L + tm.progress : v.trackS - L;
+    if (e.distance >= 0) { const k = Math.floor(e.distance / L * RACE_MARKS); while (e.markIdx < k && e.markIdx + 1 < e.marks.length) { e.markIdx++; e.marks[e.markIdx] = this.time; } }
+    if (e.netRetired && !e.retired) this._retire(e, 'Unfall');
+  }
   _placeGrid() {
     const T = this.track, L = T.length;
     this.entries.forEach((e, k) => {
@@ -305,6 +321,7 @@ class RaceSession {
     this._hurt(en, sp, lx, lz);
   }
   _hurt(en, sp, lx, lz) {
+    if (en.remote) { if (this.onRemoteHit) this.onRemoteHit(en, sp, lx, lz); return; }   // Schaden rechnet der Rechner des Mitspielers
     const v = en.vehicle, r = Damage.apply(v, sp, lx, lz, this.damage, this.rng);
     if (!r) return;
     if (en.player && r.amt > 0.08) Events.emit('race:damage', r.parts, Damage.summary(v));
@@ -380,6 +397,7 @@ class RaceSession {
       const v = e.vehicle;
       // Spieler in der Startaufstellung: Kupplung getrennt halten (Gas geben zum Vorbereiten ist erlaubt)
       if (e.player && !e.ai && this.state !== 'race') v.input.clutch = 1;
+      if (e.remote) { this._stepRemote(e, h, L); continue; }
       this._pitLogic(e);
       if (e.wreck) { v.input.throttle = 0; v.input.brake = 1; v.input.steer = 0; e.wreckT += h; if (!e.player && e.wreckT > (this.sc ? 20 : 14)) { e.wreck = false; e.active = false; } }
       const drv = e.retired ? null : (e.pitPilot || e.ai);
@@ -429,7 +447,8 @@ class RaceSession {
     // Rennende: alle im Ziel oder ausgeschieden
     if (this.leaderDone && !this.over) {
       const left = this.entries.filter(e => !e.finished && !e.retired);
-      if (!left.length || (this.player && (this.player.finished || this.player.retired) && this.time - this.finishOrder[0].finishTime > 75)) { this.over = true; Events.emit('race:over'); }
+      const humansDone = this.entries.every(e => !(e.player || e.remote) || e.finished || e.retired);
+      if (!left.length || (this.player && humansDone && this.time - this.finishOrder[0].finishTime > 75)) { this.over = true; Events.emit('race:over'); }
     }
   }
 

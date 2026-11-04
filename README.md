@@ -4,6 +4,13 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
+**Neu: Mehrspieler (Peer-to-Peer)** – bis 8 Spieler + KI, der PC des Hosts ist der Server. Lobby-Code (APEX-XXXXX) über
+den kostenlosen öffentlichen PeerJS-Vermittler, ohne Internet/LAN per kopierbarem Einladungs-/Antwort-Code (direktes
+WebRTC). Benutzername, Freundescode, Freundesliste mit Online-Status, Einladungen, Freundschaftsanfragen, Lobby-Chat,
+Host-Einstellungen (Strecke, Epoche, Runden, KI, Wetter, Tageszeit, Schaden, Safety Car). Jeder fährt sein Auto mit
+voller Physik lokal (30 Hz an den Host), der Host verteilt alle Autos (20 Hz) und die Rennübersicht (4 Hz).
+Noch nicht im Mehrspieler: Boxenstopps, Qualifying, Track-Limits-Strafen für Gäste.
+
 **Neu: Karriere** – eigener Fahrer (Name, Nummer, Nation), mehrere Saisons über alle Strecken, Teams mit wechselnder
 Autostärke, Verträge mit Bedingungen, Fahrermarkt (KI wechselt, tritt zurück, Neulinge, Fahrerwechsel während der
 Saison), Beziehung zu jedem KI-Fahrer (wirkt auf Angriff/Verteidigung gegen dich), Social-Media-Feed mit Beiträgen von
@@ -80,6 +87,9 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `84_mods_ui.js` | Mod-Ordnerauswahl, Menü „Mods“ |
 | `51_career.js` | Karriere: Daten, Fahrermarkt, Beziehungen, Social Media (ohne DOM) |
 | `86_career_ui.js` | Karriere-Menüs |
+| `87_net_ui.js` | Mehrspieler-Menüs (Profil, Freunde, Lobby) |
+| `88_net.js` | Mehrspieler: WebRTC/PeerJS-Verbindungen, Codes, Binärformat, Freunde |
+| `89_net_session.js` | Mehrspieler: Host/Client-Lobby, Rennsynchronisation, Client-Rennansicht |
 | `80_ui.js` | Menüs, HUD, Einstellungen |
 | `82_ui_race.js` | Rennvorbereitung, Ergebnis, Setup, Telemetrie, Renn-HUD |
 | `90_game.js` | Ablaufsteuerung |
@@ -107,6 +117,7 @@ node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, 
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
 node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
 node tests/browser/phase6_test.js                # Wiederholung, Reifenspuren, Nachbearbeitung, Detailstufen
+node tests/browser/multi_test.js                 # Mehrspieler: 2 Fenster, LAN-Code, Lobby-Code (lokaler Vermittler), Freunde, Rennen
 node tests/browser/career_test.js                # Karriere: Start, Teamwahl, Rennen werten, Social Media, Saisonwechsel
 node tests/browser/mods_test.js                  # Mods: Laden, Menü, Fehler, Mod-Strecke fahren
 node tests/browser/era_test.js                   # Epochen: Auswahl, Fahrzeugdaten, Optik, HUD, Rennen

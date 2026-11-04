@@ -230,7 +230,9 @@ Object.assign(UI, {
       h('header', h('span.crumb', 'Rennergebnis'), h('h1', title), h('span', { style: { color: '#7d8898' } }, `${race.track.name} · ${race.laps} ${race.laps === 1 ? 'Runde' : 'Runden'}`)),
       race.fastest.entry ? h('div.hint', 'Schnellste Runde: ', h('b', `${race.fastest.entry.name} ${fmtTime(race.fastest.time)}`), ` (Runde ${race.fastest.lap})`) : null,
       h('div.scroll', { style: { flex: '1' } }, tbl),
-      Game.careerRound && Game.career
+      Net.active
+        ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn(Net.session.role === 'host' ? 'Zurück zur Lobby' : 'Zur Lobby', () => Game.netBackToLobby(), 'primary', '▶'), btn('Mehrspieler verlassen', () => Game.netLeave(), 'ghost'))
+        : Game.careerRound && Game.career
         ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Weiter zur Karriere', () => { const sum = Game.finishCareerRace(); Game.toMenu(); this.show('career', { summary: sum, tab: 'news' }); }, 'primary', '▶'))
         : Game.seasonRound && Game.season
         ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))

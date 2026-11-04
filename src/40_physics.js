@@ -311,6 +311,59 @@ class Vehicle {
   }
 
   // ---------------------------------------------------------------------------
+  //  Mehrspieler: ferngesteuertes Fahrzeug (Zustand kommt über das Netzwerk)
+  // ---------------------------------------------------------------------------
+  /** Netz-Zustand übernehmen: { x,y,z, qx,qy,qz,qw, vx,vy,vz, steer, rpm, thr, brk, gear, cpd, flap } */
+  netApply(st) {
+    this.net = this.net || { has: false };
+    const n = this.net;
+    n.x = st.x; n.y = st.y; n.z = st.z; n.vx = st.vx; n.vy = st.vy; n.vz = st.vz;
+    n.qx = st.qx; n.qy = st.qy; n.qz = st.qz; n.qw = st.qw;
+    if (!n.has || Math.hypot(st.x - this.pos.x, st.z - this.pos.z) > 25) { this.pos.set(st.x, st.y, st.z); this.q.set(st.qx, st.qy, st.qz, st.qw); }
+    n.has = true; n.age = 0;
+    this.netRpm = st.rpm; this.input.throttle = st.thr; this.input.brake = st.brk; this.gear = st.gear;
+    const cpd = COMPOUND_ORDER[st.cpd]; if (cpd && cpd !== this.compound) this.setCompound(cpd, 80);
+    this.aeroFlap = st.flap; this.wheels[0].steer = this.wheels[1].steer = st.steer;
+  }
+  /** Ersatz für step(): Position vorhersagen (letzte Geschwindigkeit) und weich zum Netzstand ziehen */
+  netStep(h) {
+    this.prevPos.copy(this.pos); this.prevQ.copy(this.q);
+    this.time += h;
+    const n = this.net;
+    if (n && n.has) {
+      n.age += h; n.x += n.vx * h; n.y += n.vy * h; n.z += n.vz * h;   // Zielpunkt läuft mit
+      const k = 1 - Math.exp(-h * 14);
+      this.pos.x += (n.x - this.pos.x) * k; this.pos.y += (n.y - this.pos.y) * k; this.pos.z += (n.z - this.pos.z) * k;
+      this.vel.set(n.vx, n.vy, n.vz);
+      // Rotation: nlerp Richtung Netzstand
+      let qx = n.qx, qy = n.qy, qz = n.qz, qw = n.qw; const q = this.q;
+      if (q.x * qx + q.y * qy + q.z * qz + q.w * qw < 0) { qx = -qx; qy = -qy; qz = -qz; qw = -qw; }
+      q.x += (qx - q.x) * k; q.y += (qy - q.y) * k; q.z += (qz - q.z) * k; q.w += (qw - q.w) * k;
+      const ql = Math.hypot(q.x, q.y, q.z, q.w) || 1; q.x /= ql; q.y /= ql; q.z /= ql; q.w /= ql;
+    }
+    this.angVel.set(0, 0, 0);
+    const R = this.R.fromQuat(this.q), e = R.e;
+    this._right.set(e[0], e[3], e[6]); this._up.set(e[1], e[4], e[7]); this._fwd.set(-e[2], -e[5], -e[8]);
+    this.vLong = this.vel.dot(this._fwd); this.vLat = this.vel.dot(this._right); this.speed = this.vel.length();
+    if (this.track) {
+      const loc = this.track.locate(this.pos.x, this.pos.z, this.trackIdx, this._loc);
+      this.trackIdx = loc.i; this.lateral = loc.d; this.trackS = this.track.S[loc.i] + loc.f * this.track.ds;
+      this.inAeroZone = this.track.aero[loc.i] === 1;
+      const P = this.track.pit;
+      this.inPitLane = !!(P && P.inPit[loc.i] && (loc.d >= 0 ? 1 : 0) === P.s && Math.abs(loc.d) > this.track.BD[P.s][loc.i] - 0.3);
+    }
+    // Raddrehung für die Grafik, Motordrehzahl für den Klang der Gegner
+    for (const w of this.wheels) { w.omega = this.vLong / w.radius; w.spin += w.omega * h; }
+    if (this.netRpm) this.engOmega = this.netRpm * RPM2RAD;
+    this.distance += Math.max(0, this.vLong) * h;
+  }
+  /** Kompakter Netz-Zustand dieses (selbst simulierten) Fahrzeugs */
+  netState() {
+    const p = this.pos, q = this.q, v = this.vel;
+    return { x: p.x, y: p.y, z: p.z, qx: q.x, qy: q.y, qz: q.z, qw: q.w, vx: v.x, vy: v.y, vz: v.z, steer: (this.wheels[0].steer + this.wheels[1].steer) / 2, rpm: this.rpm, thr: this.input.throttle, brk: this.input.brake, gear: this.gear, cpd: Math.max(0, COMPOUND_ORDER.indexOf(this.compound)), flap: this.aeroFlap || 0 };
+  }
+
+  // ---------------------------------------------------------------------------
   //  Fahrerbefehle, Lenkung, Fahrhilfen, Bremsverteilung, Aero-Modus
   // ---------------------------------------------------------------------------
   _controls(h) {

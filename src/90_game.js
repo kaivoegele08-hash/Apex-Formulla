@@ -161,7 +161,8 @@ const Game = {
     v.setup = Object.assign({}, DEFAULT_SETUP, setup); v.applySetup(v.setup);
     this.resetCar();
   },
-  get recorder() { return this.mode === 'race' ? this.raceRec : (this.session && this.session.rec); },
+  get raceMode() { return this.mode === 'race' || this.mode === 'netclient'; },
+  get recorder() { return this.raceMode ? this.raceRec : (this.session && this.session.rec); },
 
   /** Ladebildschirm zeigen, laufende Sitzung abbauen */
   async _begin(text) {
@@ -175,7 +176,8 @@ const Game = {
   /** Strecke (Welt, Grafik, Minikarte) nur bei Bedarf neu aufbauen */
   async _prepareTrack(id) {
     const track = this.track = this.getTrackModel(id);
-    const tod = this.settings.game.timeOfDay && this.settings.game.timeOfDay !== 'track' ? this.settings.game.timeOfDay : track.def.timeOfDay;
+    const todSet = this._todOverride || this.settings.game.timeOfDay;
+    const tod = todSet && todSet !== 'track' ? todSet : track.def.timeOfDay;
     const key = track.id + '|' + Render.quality.trees + '|' + tod;
     if (this.builtFor !== key) {
       if (Render.scene) Render.scene.traverse(o => { if (o.geometry) o.geometry.dispose(); });
@@ -224,7 +226,7 @@ const Game = {
     this._updateVisuals(0, 1);
     Render.renderer.compile(Render.scene, Render.camera);
     $('boot').classList.add('hidden');
-    $('hudMode').textContent = this.mode === 'race' ? 'Rennen' : this.mode === 'quali' ? 'Qualifying' : 'Testfahrt';
+    $('hudMode').textContent = this.mode === 'netclient' || (this.mode === 'race' && this.netHost) ? 'Mehrspieler' : this.mode === 'race' ? 'Rennen' : this.mode === 'quali' ? 'Qualifying' : 'Testfahrt';
     UI.setHudVisible(this.hudOn);
     Input.gameActive = true; Input.flush();
     AudioSys.setActive(true);
@@ -240,6 +242,7 @@ const Game = {
   },
 
   async startTestDrive() {
+    this.netHost = null;
     await this._begin('Strecke wird aufgebaut …');
     try {
       this._useEra(this.settings.game.era);
@@ -266,6 +269,8 @@ const Game = {
   /** Rennen-Parameter: Schnelles Rennen aus den Einstellungen, in der Meisterschaft aus der Saison */
   raceParams() {
     const R = this.settings.race, G = this.settings.game, C = this.careerRound && this.career ? this.career : null;
+    const NH = this.netHost;
+    if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: 1, weather: s.weatherType || 'dry', quali: false, qualiMin: 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
     const S = C ? C.season : this.season && this.seasonRound ? this.season : null;
     if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
     const trackId = TRACKS[S.tracks[S.round]] ? S.tracks[S.round] : 'ringpark';
@@ -274,10 +279,11 @@ const Game = {
   },
   _field(P) {
     const R = this.settings.race;
+    if (P.net) return this.netHost.grid.map(g => g.kind === 'host' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, player: true } : g.kind === 'remote' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, remote: true, netId: g.id } : { driver: g.driver, team: g.team, number: g.number });
     if (P.career) { const c = this.career, f = buildField({ playerTeam: c.team, playerName: c.me.name, playerNumber: c.me.number, drivers: Career.raceDrivers(c) }); f.find(e => e.player).trackGrip = Career.grip(c, c.team); return f; }
     return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
   /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
-  startEvent() { const P = this.raceParams(); this.pendingGrid = null; if (P.quali) this.startQualifying(); else this.startRace(); },
+  startEvent() { this.netHost = null; const P = this.raceParams(); this.pendingGrid = null; if (P.quali) this.startQualifying(); else this.startRace(); },
 
   /** Qualifying: freie Fahrt gegen die Uhr, KI-Zeiten werden geschätzt (QualiSession) */
   async startQualifying() {
@@ -330,10 +336,12 @@ const Game = {
       const P = this.raceParams();
       this._useEra(P.era);
       this.settings.game.track = P.trackId;
+      this._todOverride = P.tod || null;
       const track = await this._prepareTrack(P.trackId);
+      this._todOverride = null;
       $('bootMsg').textContent = 'Ideallinie und Gegner werden berechnet …';
       await nextFrame();
-      const line = this.getLine(track.id), R = Object.assign({}, this.settings.race, { laps: P.laps, strength: P.strength }), G = this.settings.game;
+      const line = this.getLine(track.id), R = Object.assign({}, this.settings.race, { laps: P.laps, strength: P.strength }, P.raceOverride || {}), G = this.settings.game;
       const lapT = refLapTime(track, line);
       const wx = this.weather = new Weather(this.pendingGrid && this.eventWeather ? this.eventWeather : P.weather, { duration: R.laps * lapT });
       let field;
@@ -361,6 +369,7 @@ const Game = {
         Render.scene.add(vis.root);
         this.raceVis.push({ e, vis });
       }
+      if (this.netHost) this.netHost.attachRace(race);
       this.session = {
         kind: 'race', delta: null, invalidate() { },
         get lap() { return Math.max(1, me.timing.lap); }, get lapTime() { return me.timing.lapTime; },
@@ -409,6 +418,9 @@ const Game = {
     Events.on('race:pitdone', (e) => { if (e.player) UI.hudMsg('Zurück auf der Strecke – du fährst', 2200); });
     Events.on('race:finished', (e) => { if (e.player) this._playerDone(`Zielflagge – Platz ${e.pos}`); });
     Events.on('race:retired', (e) => { if (e.player) this._playerDone('Ausgeschieden'); });
+    Events.on('race:over', () => { if (this.netHost && Net.session === this.netHost) this.netHost.sendResult(); });
+    Events.on('net:closed', (why) => { this.netHost = null; if (this.mode === 'netclient' || (this.state !== 'menu' && this.raceMode && Net.active === false && this.netView)) { this.toMenu(); } UI.toast('Mehrspieler: ' + (why || 'Verbindung beendet'), 5000); if (UI.current === 'lobby') UI.show('multi', { noHistory: true }); });
+    Events.on('net:lobbyAgain', () => { if (this.mode === 'netclient') { this.toMenu(); UI.show('lobby', { noHistory: true }); } });
     Events.on('race:over', () => { if (this.state === 'finished' && UI.current === 'results') UI.show('results', { noHistory: true }); });
   },
   /** Spieler im Ziel oder ausgeschieden: Auslaufrunde übernimmt die KI, TV-Kamera, Ergebnis nach kurzer Pause */
@@ -450,7 +462,7 @@ const Game = {
     v.soc = soc; v.ersMode = ers; v.brakeBias = bb;
     v.gear = 1;
     this.applyAids();
-    if (this.mode === 'race') { const me = this.race.player; me.ghostT = 3; me.timing.prevS = v.trackS; }
+    if (this.raceMode) { const me = this.race.player; me.ghostT = 3; me.timing.prevS = v.trackS; }
     else { this.session.invalidate(); this.session.timing.prevS = v.trackS; }
     if (this.rig) this.rig.init = false;
     Render.clearParticles();
@@ -462,7 +474,8 @@ const Game = {
     if (this.state !== 'driving') return;
     this.pauseReason = reason;
     this.pauseWhileWheel = Input.state.steerSource === 'wheel';
-    this.state = 'paused'; this.loop.paused = true;
+    this.netPaused = Net.active && this.raceMode;
+    this.state = 'paused'; this.loop.paused = !this.netPaused;
     AudioSys.setActive(false);
     Input.gameActive = false;
     UI.show('pause');
@@ -476,7 +489,8 @@ const Game = {
     AudioSys.setActive(true);
   },
   toMenu() {
-    this.state = 'menu'; this.loop.paused = false;
+    this.state = 'menu'; this.loop.paused = false; this.netPaused = false;
+    this.netView = null;
     Input.gameActive = false;
     AudioSys.setActive(false);
     UI.setHudVisible(false); UI.toggleMfd(false);
@@ -484,6 +498,58 @@ const Game = {
     UI.prev = [];
     UI.show('main', { noHistory: true });
   },
+
+  // ---------------------------------------------------------------------------
+  //  Mehrspieler
+  // ---------------------------------------------------------------------------
+  /** Host: Rennen aus der Lobby starten (Feld = Lobby-Spieler + KI) */
+  netStartHost(host) { this.netHost = host; this.seasonRound = false; this.careerRound = false; this.pendingGrid = null; this.startRace(); },
+  /** Client: Rennen nach der Startnachricht des Hosts aufbauen */
+  async netStartClient(cl, m) {
+    await this._begin('Mehrspieler-Rennen wird geladen …');
+    try {
+      const S = m.settings;
+      this.netHost = null; this.seasonRound = false; this.careerRound = false;
+      this._useEra(S.era);
+      this._todOverride = S.tod || null;
+      const track = await this._prepareTrack(TRACKS[S.track] ? S.track : 'ringpark');
+      this._todOverride = null;
+      const line = this.getLine(track.id);
+      const wx = this.weather = new Weather(S.weatherType || 'dry');
+      const v = this.vehicle = new Vehicle(CAR_SPEC, this.setupFor(track.id));
+      v.setCompound(this._startCompound(this.settings.game.compound || 'medium'), 75);
+      this.mode = 'netclient';
+      const view = this.netView = this.race = new NetView(cl, m, track, line, v, wx);
+      this.applyAids();
+      this._playerVisual();
+      for (const e of view.entries) {
+        if (e.player) continue;
+        const team = TEAMS.find(t => t.id === e.team) || TEAMS[0];
+        const vis = new CarVisual(team, e.number, { detail: 'low', physical: false });
+        Render.scene.add(vis.root); this.raceVis.push({ e, vis });
+      }
+      const me = view.player;
+      this.session = { kind: 'race', delta: null, invalidate() { }, get lap() { return Math.max(1, me.timing.lap); }, get lapTime() { return me.timing.lapTime; }, get lastLap() { return me.timing.lastLap; }, get bestLap() { return me.timing.bestLap; }, get lapValid() { return me.timing.valid; } };
+      this.raceRec = new LapRecorder(track, { ghost: false });
+      this.raceSectors = [null, null, null];
+      me.timing.on((type, data) => {
+        if (type === 'lap') { this.raceRec.end(data); this.raceSectors = [null, null, null]; if (!me.finished) this.raceRec.begin(data.lap + 1); }
+        else if (type === 'sector') { this.raceSectors[data.k] = !me.timing.valid ? 'invalid' : data.pb ? 'green' : 'yellow'; }
+        else if (type === 'invalid') this.raceSectors = this.raceSectors.map(x => x && 'invalid');
+      });
+      UI.setRaceHud(true, view.entries.length);
+      this._startRecording();
+      this._go(`Mehrspieler · ${track.name} · ${S.laps} ${S.laps === 1 ? 'Runde' : 'Runden'}`);
+      setTimeout(() => { if (this.race === view && view.state !== 'race') UI.hudMsg('Startaufstellung – warte auf die Ampel', 3000); }, 1200);
+    } catch (err) { this._fail(err); }
+  },
+  /** Nach dem Rennen: zurück in die Lobby (Host lädt alle ein, Client wartet) */
+  netBackToLobby() {
+    const s = Net.session; this.toMenu(); this.netHost = null;
+    if (s && s.role === 'host') s.backToLobby();
+    UI.show(s ? 'lobby' : 'multi', { noHistory: true });
+  },
+  netLeave() { Net.leave(); this.netHost = null; this.toMenu(); UI.show('multi', { noHistory: true }); },
 
   // ---------------------------------------------------------------------------
   //  Siegerehrung
@@ -496,7 +562,7 @@ const Game = {
     const list = top.map(r => ({ team: TEAMS.find(t => t.id === r.team) || TEAMS[0], number: r.number, name: r.e.player ? (this.settings.game.playerName || 'Du') : r.name, player: r.e.player }));
     this.podium = new PodiumScene(Render.renderer, list, { track: race.track.name });
     this.podiumPrev = { state: this.state, paused: this.loop.paused };
-    this.state = 'podium'; this.loop.paused = true; Input.gameActive = false;
+    this.state = 'podium'; this.loop.paused = !Net.active; Input.gameActive = false;
     AudioSys.setActive(false);
     UI.setHudVisible(false); UI.toggleMfd(false);
     UI.show('podium', { noHistory: true, list });
@@ -516,7 +582,7 @@ const Game = {
   // ---------------------------------------------------------------------------
   _startRecording() {
     const G = this.settings.game;
-    if (this.mode === 'race' && this.race) {
+    if (this.raceMode && this.race) {
       const race = this.race;
       const src = race.entries.map(e => ({ vehicle: e.vehicle, team: e.team, number: e.number, name: e.player ? (G.playerName || 'Du') : e.name, player: e.player, entry: e, dist: () => e.distance, visible: () => e.active || e.player }));
       src.push({ get: () => (race.sc && race.sc.car ? race.sc.car.vehicle : null), sc: true, name: 'Safety Car', team: 'sc', number: 0, noFocus: true });
@@ -563,7 +629,7 @@ const Game = {
     this.rp = { from, prevState: this.state, prevPaused: this.loop.paused, prevCam: this.camMode, t: t0, speed: 1, playing: true, follow: Math.max(0, pi), auto: from === 'results',
       cars: R.src.map(s => new ReplayCar(s)), vis, dir: new ReplayDirector(R, { playerIdx: pi }), tmp: {}, uiT: 0 };
     if (this.ghost) this.ghost.root.visible = false;
-    this.state = 'replay'; this.loop.paused = true; Input.gameActive = false;
+    this.state = 'replay'; this.loop.paused = !Net.active; Input.gameActive = false;
     AudioSys.setReplay(true);
     UI.hideScreens(); UI.setHudVisible(false); UI.toggleMfd(false);
     this.setCamera('tv');
@@ -657,7 +723,7 @@ const Game = {
   pre(dt) {
     const v = this.vehicle;
     Input.update(dt, v ? v.speedKmh : 0);
-    const autoDrive = this.mode === 'race' && this.race && this.race.player && (this.race.player.ai || this.race.player.pitPilot);
+    const autoDrive = this.raceMode && this.race && this.race.player && (this.race.player.ai || this.race.player.pitPilot);
     if (this.state === 'driving' && v) {
       if (!autoDrive) { const st = Input.state, inp = v.input; inp.steer = st.steer; inp.throttle = st.throttle; inp.brake = st.brake; inp.clutch = st.clutch; inp.steerSource = st.steerSource; }
       this._actions();
@@ -683,7 +749,8 @@ const Game = {
     // Entprellung: ein Knopf, der gerade „Fortsetzen“ ausgelöst hat, darf nicht sofort wieder pausieren
     if (I.pressed('pause') && performance.now() - (this.resumeT || 0) > 400) { this.pause(I.sourceOf('pause') || 'Pause-Taste'); return; }
     if (I.pressed('pitRequest')) {
-      if (this.mode === 'race' && this.race && this.race.track.pit) {
+      if (this.mode === 'netclient' || this.netHost) UI.hudMsg('Boxenstopps sind im Mehrspieler noch nicht verfügbar', 2200);
+      else if (this.mode === 'race' && this.race && this.race.track.pit) {
         const r = this.race.togglePit(this.race.player, this.pitPlan);
         UI.hudMsg(r === 'angefordert' ? `Box angefordert – ${COMPOUNDS[this.pitPlan.compound].name}${this.pitPlan.repair ? ' · Reparatur' : ''}` : r === 'abgebrochen' ? 'Box abgebrochen' : 'Boxenstopp läuft', 2200);
         AudioSys.radio();
@@ -720,8 +787,11 @@ const Game = {
     if (I.pressed('hud')) { this.hudOn = !this.hudOn; UI.setHudVisible(this.hudOn); }
   },
   step(h) {
-    if ((this.state !== 'driving' && this.state !== 'finished') || !this.vehicle) return;
-    if (this.mode === 'race' && this.race) {
+    // Mehrspieler: Pause, Wiederholung und Siegerehrung halten das Rennen nicht an
+    const netRun = Net.active && this.raceMode && (this.state === 'paused' || this.state === 'replay' || this.state === 'podium');
+    if ((this.state !== 'driving' && this.state !== 'finished' && !netRun) || !this.vehicle) return;
+    if (netRun && this.state !== 'podium' && !(this.race && this.race.player && this.race.player.ai)) { const i = this.vehicle.input; i.throttle = 0; i.brake = 0.5; i.steer *= 0.98; }
+    if (this.raceMode && this.race) {
       const race = this.race, me = race.player;
       race.step(h);
       if (this.replay) this.replay.step(h);
@@ -736,7 +806,7 @@ const Game = {
   /** Punkte für die Minikarte */
   mapCars() {
     const col = this.team.colors[0];
-    if (this.mode === 'race' && this.race) {
+    if (this.raceMode && this.race) {
       const list = this.race.entries.filter(e => e.active || e.player).map(e => ({ x: e.vehicle.pos.x, z: e.vehicle.pos.z, color: TEAMS.find(t => t.id === e.team).colors[0], player: e.player }));
       const scc = this.race.sc && this.race.sc.car; if (scc) list.push({ x: scc.vehicle.pos.x, z: scc.vehicle.pos.z, color: '#ff8a00' });
       return list.sort((a, b) => a.player - b.player);
@@ -748,6 +818,7 @@ const Game = {
   },
   frame(dt, alpha) {
     UI.frame(dt);
+    if (Net.session && Net.session.tick) Net.session.tick(dt);
     const G = this.settings.graphics;
     if (this.state === 'replay' && this.rp) { this._replayFrame(dt); }
     else if (this.state === 'podium' && this.podium) { this.podium.update(dt, Render.width / Render.height); Render.render(this.podium.scene, this.podium.camera); }
@@ -816,7 +887,7 @@ const Game = {
     }
     if (this.hudOn) {
       UI.updateHud(dt, v, this.session, this.minimap);
-      if (this.mode === 'race' && this.race) {
+      if (this.raceMode && this.race) {
         this._raceHudT = (this._raceHudT || 0) + dt;
         if (this._raceHudT > 0.25) { this._raceHudT = 0; UI.updateRaceHud(this.race); }
         UI.setSectors(this.raceSectors, this.race.player.timing.started ? this.race.player.timing.sector : -1);
@@ -851,7 +922,7 @@ const Game = {
       const S = this.session, show = S && S.started && S.ghost && this.state !== 'finished';
       this.ghost.update(show ? S.ghost.data : null, S ? S.lapTime : 0, cp);
     }
-    if (this.mode !== 'race' || !this.race) return;
+    if (!this.raceMode || !this.race) return;
     const scCar = this.race.sc && this.race.sc.car;
     if (scCar && !this.scVis) { this.scVis = new CarVisual(SC_TEAM, 0, { detail: 'low', physical: false }); Render.scene.add(this.scVis.root); }
     if (this.scVis) {
@@ -925,7 +996,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { ModFolder, applyMods, applyEra, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { ModFolder, applyMods, applyEra, Net, NetHost, NetClient, NetProfile, NetPresence, AIDriverRef: AIDriver, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);
