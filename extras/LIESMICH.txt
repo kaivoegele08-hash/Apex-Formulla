@@ -4,7 +4,10 @@ APEX FORMULA – Formel-Rennsimulation im Browser
 START
   apex-formula.html im Browser öffnen (Doppelklick). Empfohlen: Chrome, Chromium,
   Edge oder Brave (Force Feedback braucht WebHID – das hat Firefox nicht).
-  Beim ersten Start wird Three.js aus dem Internet geladen.
+  Version 1.0 läuft komplett ohne Internet (nur die Online-Lobby braucht es).
+  Beim allerersten Start führt ein kurzer Assistent durch Name, Steuerung und
+  Fahrhilfen; danach kannst du die Fahrschule fahren (oder später über
+  ?welcome hinter dem Dateinamen erneut aufrufen).
 
 SPIELEN
   Hauptmenü → „Schnelles Rennen“: Runden, Gegnerzahl (bis 19), KI-Stärke,
@@ -17,12 +20,14 @@ SPIELEN
   Ab 10 Runden Pflichtstopp: zwei verschiedene Trockenmischungen.
   Flaggen: Gelb/Safety Car/VSC = nicht überholen (sonst 5 s Strafe).
   Strecken: Kurstadt Ringpark, Falkenried-Ring (nach deiner Skizze),
-  Hafenstadt-Kurs (Stadtkurs mit Mauern) und Alpental-Ring (Berge).
+  Hafenstadt-Kurs (Stadtkurs mit Mauern), Alpental-Ring (Berge),
+  Sandmeer-Ring (Nachtrennen in der Wüste), Kesselberg-Ring (schneller
+  Waldkurs) und Seenland-Parcours (kurz und verwinkelt).
   Wetter und Tageszeit wählst du in der Renn-/Testfahrt-Vorbereitung.
   Bei nasser Strecke: Intermediate (grün) bzw. Regenreifen (blau).
   Qualifying (in der Rennvorbereitung einschalten): fahre gegen die Uhr,
   deine beste gültige Runde bestimmt den Startplatz.
-  „Meisterschaft“: Saison über alle vier Strecken mit Punkten, Fahrer- und
+  „Meisterschaft“: Saison über alle Strecken mit Punkten, Fahrer- und
   Teamwertung; der Spielstand wird automatisch gespeichert.
   Epochen: in Testfahrt, Rennvorbereitung und Meisterschaft wählbar
   (1990 bis 2026) – jeweils eigenes Auto, Fahrverhalten, Motorklang und
@@ -76,3 +81,16 @@ MENÜ ÖFFNET SICH BEIM FAHREN?
   Einstellungen → Allgemein & Daten abschalten.
 
 Alle Teams, Fahrer, Strecken und Marken im Spiel sind frei erfunden.
+
+NEU IN VERSION 1.0
+  Renningenieur: meldet über Funk Position, Abstände, Reifen, Schaden,
+  Safety Car und Wetter. Einstellungen → Audio: Aus / Nur Text / Text +
+  Stimme. Unter Linux braucht die Stimme ggf. das Paket speech-dispatcher.
+  Karriere: nach jedem Rennen gibt es Entwicklungspunkte (Reiter
+  „Entwicklung“) für Aero, Fahrwerk und Antrieb. Freies Training vor dem
+  Rennen: bis zu 3 Runden, je +1 Punkt, danach Setup-Bonus im Rennen.
+  Teamorder kommen per Funk – befolgen freut das Team, ignorieren nicht.
+  Angebote am Saisonende kannst du einmal nachverhandeln (Gehalt, Laufzeit,
+  Status Nr. 1) – zu hoch gepokert kann das Angebot kosten.
+  Schaden ist sichtbar: Flügel fallen ab, Räder kippen, der Motor qualmt.
+  Tageszeit „Nacht“ mit Flutlicht; bei Regen Tropfen auf dem Visier.

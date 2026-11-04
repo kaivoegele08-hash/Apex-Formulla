@@ -4,7 +4,20 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
-**Neu: Mehrspieler (Peer-to-Peer)** – bis 8 Spieler + KI, der PC des Hosts ist der Server. Lobby-Code (APEX-XXXXX) über
+**Version 1.0**
+- Läuft komplett offline: Three.js und PeerJS stecken in der HTML-Datei (nur der Online-Lobby-Vermittler braucht Internet)
+- Spielstände abgesichert: Versionierung mit Migration, drei Karriere-Speicherplätze mit Saisonende-Sicherung, Export/Import als Datei
+- Erster Start: Willkommens-Assistent (Name, Nummer, Eingabegerät, Fahrhilfen-Stufe) und **Fahrschule** mit geführten Funk-Hinweisen
+- **Renningenieur-Funk**: Position, Abstände, Reifen, Schaden, Safety Car, Wetter, Zielflagge – als Text oder mit Stimme (Web Speech)
+- **Sichtbarer Schaden**: Flügel hängen durch und fallen als Trümmer ab, verbogene Räder kippen, angeschlagener Motor qualmt
+- **Epochen-Bauformen**: Nasenhöhe, Front-/Heckflügel, Haifischflosse, Beam-Wing, Bargeboards, Rillenreifen je Generation
+- **Karriere-Tiefe**: Entwicklungspunkte und Upgrades (Aero/Fahrwerk/Antrieb), Freies Training mit Setup-Bonus, Teamorder per Funk, Vertragsverhandlung (Gehalt, Laufzeit, Nr.-1-Status)
+- **Drei neue Strecken** (jetzt 7): Sandmeer-Ring (Nachtrennen unter Flutlicht in der Wüste), Kesselberg-Ring (schneller Waldkurs), Seenland-Parcours (kurz und verwinkelt)
+- Grafik/Ton: Tageszeit **Nacht** mit Flutlichtmasten, Regentropfen auf dem Visier (Cockpit/T-Cam/Nase), Jubel der Zuschauer
+- Mehrspieler-Lücken geschlossen (Boxenstopps, Qualifying, Strafen, Wiederverbinden, eigener TURN-Server)
+- KI: vorsichtigere Startphase, verwirbelte Luft, neue Ideallinie (minimale Krümmung), Bremsdosierung; Safety Car im Regen; glatte Randstein-/Kiesübergänge
+
+**Mehrspieler (Peer-to-Peer)** – bis 8 Spieler + KI, der PC des Hosts ist der Server. Lobby-Code (APEX-XXXXX) über
 den kostenlosen öffentlichen PeerJS-Vermittler, ohne Internet/LAN per kopierbarem Einladungs-/Antwort-Code (direktes
 WebRTC). Benutzername, Freundescode, Freundesliste mit Online-Status, Einladungen, Freundschaftsanfragen, Lobby-Chat,
 Host-Einstellungen (Strecke, Epoche, Runden, KI, Wetter, Tageszeit, Schaden, Safety Car). Jeder fährt sein Auto mit
@@ -12,24 +25,24 @@ voller Physik lokal (30 Hz an den Host), der Host verteilt alle Autos (20 Hz) un
 Boxenstopps (Autopilot auf dem PC des Gasts), Qualifying (alle gleichzeitig gegen die Uhr), Track Limits/Frühstart für Gäste,
 Wiederverbinden nach Verbindungsabbruch (90 s), optional eigener TURN-Server.
 
-**Neu: Karriere** – eigener Fahrer (Name, Nummer, Nation), mehrere Saisons über alle Strecken, Teams mit wechselnder
+**Karriere** – eigener Fahrer (Name, Nummer, Nation), mehrere Saisons über alle Strecken, Teams mit wechselnder
 Autostärke, Verträge mit Bedingungen, Fahrermarkt (KI wechselt, tritt zurück, Neulinge, Fahrerwechsel während der
 Saison), Beziehung zu jedem KI-Fahrer (wirkt auf Angriff/Verteidigung gegen dich), Social-Media-Feed mit Beiträgen von
 Fahrern, Team, Fans und Presse, eigene Beiträge und Antworten.
 
-**Neu: Mods** – Ordner `mods/` neben der HTML-Datei: Strecken (aus Eckpunkten + Kurvenradien, Rest automatisch),
+**Mods** – Ordner `mods/` neben der HTML-Datei: Strecken (aus Eckpunkten + Kurvenradien, Rest automatisch),
 Teams, Fahrer und eigene Autos/Epochen. Laden über `mods/mods.js` oder (Chrome/Edge) Ordnerauswahl im Menü „Mods“.
 Anleitung `mods/README.txt`, KI-Prompt-Vorlagen in `mods/vorlagen/`.
 
-**Neu: Hauptmenü & Siegerehrung** – Kachel-Hub mit Fahrerprofil; Podest mit Fahrerfiguren in Teamfarben,
+**Hauptmenü & Siegerehrung** – Kachel-Hub mit Fahrerprofil; Podest mit Fahrerfiguren in Teamfarben,
 Pokalen, Konfetti und Sektdusche nach dem Rennen (abschaltbar).
 
-**Neu: Epochen** – acht Fahrzeug-Generationen (1990, 2000, 2010, 2014, 2017, 2020, 2022, 2026) mit eigener Physik
+**Epochen** – acht Fahrzeug-Generationen (1990, 2000, 2010, 2014, 2017, 2020, 2022, 2026) mit eigener Physik
 (Motor/Drehzahl, Getriebe, Masse, Radstand, Aero, Reifen, ERS, DRS bzw. aktive Aero), gemessenen KI-Grenzen,
 eigenem Motorklang (V12/V10/V8/V6), Optik (Halo, Radstand, Breite) und frei erfundenem Fahrerfeld je Epoche.
 Bestzeiten und Ghosts werden je Epoche getrennt gespeichert. Die Qualifying-Schätzung kalibriert sich je Epoche/Strecke selbst.
 
-**Stand: Phase 6**
+**Phase 6**
 - Wiederholung: alle Autos + Safety Car mit 15 Hz aufgezeichnet (≈ 0,8 MB je Minute, Ringpuffer 40 min), Wiedergabe mit Zeitleiste, Ereignismarken (Überholen, Kontakt, Ausfall), Tempo ¼×–4×, alle Kameras + Helikopter, automatische Regie, Positionsliste zum Anklicken
 - Grafik: Reifenspuren beim Blockieren/Rutschen, Nachbearbeitung (dezentes Bloom, Vignette, Farbkorrektur, MSAA im Renderziel), abschaltbar
 - Performance: dreistufige Detailstufen für Gegner, Schatten nur von großen Teilen → Draw Calls in der Startaufstellung 2084 → 686 (−67 %), TV-Kamera 960 → 314; automatische Anpassung schaltet zuerst die Nachbearbeitung ab
