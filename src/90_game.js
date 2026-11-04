@@ -155,7 +155,7 @@ const Game = {
     this.tvSpots = buildTvSpots(track, (this.trackVisual && this.trackVisual.blocked) || []);
     this.idealLine = new IdealLineVisual(track, this.getLine(track.id));
     Render.scene.add(this.idealLine.mesh);
-    this.skids = new SkidMarks(); Render.scene.add(this.skids.mesh);
+    this.skids = new SkidMarks(); this.skids.ground = (x, z, hint) => track.heightAt(x, z, hint); Render.scene.add(this.skids.mesh);
     return track;
   },
   _playerVisual() {

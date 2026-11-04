@@ -192,9 +192,10 @@ class SkidMarks {
     this.last = new Map(); this.dirty = [];
   }
   /** key = Rad-Kennung; x,y,z = Aufstandspunkt; hx,hz = Fahrtrichtung (normiert); w = Breite; a = Deckkraft 0…1 (0 = keine Spur) */
-  add(key, x, y, z, hx, hz, w, a) {
+  add(key, x, y, z, hx, hz, w, a, hint = -1) {
     const L = this.last.get(key);
     if (a <= 0.02) { if (L) this.last.delete(key); return; }
+    if (this.ground) y = this.ground(x, z, hint);       // Fahrbahnhöhe statt (eingefederter) Aufstandspunkt
     if (!L) { this.last.set(key, { x, y, z, hx, hz, w, a }); return; }
     const dx = x - L.x, dz = z - L.z, d2 = dx * dx + dz * dz;
     if (d2 < 0.6 * 0.6) return;
@@ -202,9 +203,9 @@ class SkidMarks {
     const i = this.next; this.next = (this.next + 1) % this.max; this.count = Math.min(this.max, this.count + 1);
     const P = this.pos, C = this.col, o = i * 12, oc = i * 16;
     const px0 = -L.hz * L.w * 0.5, pz0 = L.hx * L.w * 0.5, px1 = -hz * w * 0.5, pz1 = hx * w * 0.5;
-    P.set([L.x - px0, L.y + 0.025, L.z - pz0, L.x + px0, L.y + 0.025, L.z + pz0, x - px1, y + 0.025, z - pz1, x + px1, y + 0.025, z + pz1], o);
-    const a0 = L.a * 0.55, a1 = a * 0.55;
-    C.set([0.04, 0.04, 0.045, a0, 0.04, 0.04, 0.045, a0, 0.04, 0.04, 0.045, a1, 0.04, 0.04, 0.045, a1], oc);
+    P.set([L.x - px0, L.y + 0.035, L.z - pz0, L.x + px0, L.y + 0.035, L.z + pz0, x - px1, y + 0.035, z - pz1, x + px1, y + 0.035, z + pz1], o);
+    const a0 = L.a * 0.78, a1 = a * 0.78;
+    C.set([0.012, 0.012, 0.014, a0, 0.012, 0.012, 0.014, a0, 0.012, 0.012, 0.014, a1, 0.012, 0.012, 0.014, a1], oc);
     this.dirty.push(i);
     L.x = x; L.y = y; L.z = z; L.hx = hx; L.hz = hz; L.w = w; L.a = a;
   }
@@ -221,7 +222,7 @@ class SkidMarks {
         else a = smoothstep(1.25, 2.6, w.sComb) * smoothstep(4, 14, w.slipVel);
         a *= 1 - water * 2;
       }
-      this.add(id * 4 + k, w.cx, w.cy, w.cz, hx, hz, k < 2 ? CAR_SPEC.tyreWidthF : CAR_SPEC.tyreWidthR, a);
+      this.add(id * 4 + k, w.cx, w.cy, w.cz, hx, hz, k < 2 ? CAR_SPEC.tyreWidthF : CAR_SPEC.tyreWidthR, a, v.trackIdx);
     }
   }
   /** Einmal pro Bild: geänderte Bereiche hochladen */
