@@ -83,6 +83,16 @@ const AudioSys = {
     this.active = on;
   },
 
+  /** Wiederholung: eigener Motor und Effekte stumm, Gegner-Stimmen (aus der Aufzeichnung) aktiv */
+  setReplay(on) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    if (this.engine) this.engine.out.gain.setTargetAtTime(0, t, 0.08);
+    if (this.fx) this.fx.setActive(false);
+    this.active = on;
+    if (!on && this.opp) this.opp.update([], false);
+  },
+
   // --- kurze Klänge ---
   _burst(bus, { dur = 0.06, freq = 1200, q = 1.5, gain = 0.4, type = 'bandpass', tone = 0, toneGain = 0, toneDecay = 0.08 }) {
     if (!this.ready) return;

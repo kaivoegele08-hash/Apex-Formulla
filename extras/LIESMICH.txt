@@ -24,6 +24,11 @@ SPIELEN
   deine beste gültige Runde bestimmt den Startplatz.
   „Meisterschaft“: Saison über alle vier Strecken mit Punkten, Fahrer- und
   Teamwertung; der Spielstand wird automatisch gespeichert.
+  Wiederholung: im Pausemenü (letzte Sekunden) oder nach dem Rennen im
+  Ergebnis. Leertaste = Abspielen/Pause, Pfeiltasten = spulen/Auto wechseln,
+  C = Kamera (auch Helikopter), F = automatische Regie, Esc = zurück.
+  Grafik → „Nachbearbeitung“ und „Reifenspuren“ lassen sich abschalten, falls
+  die Bildrate zu niedrig ist; „Detailstufe Gegner“ spart weitere Leistung.
   Fahrhilfe „Ideallinie“: grün = Gas, gelb = Gas weg, rot = bremsen
   (Einstellungen → Fahrhilfen bzw. in der Renn-/Testfahrt-Vorbereitung).
   KI-Stärke 100 % = Grenzbereich des Autos, darüber mehr Grip („Legende“).

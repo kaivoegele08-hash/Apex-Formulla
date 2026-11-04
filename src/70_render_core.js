@@ -4,10 +4,10 @@
 // ============================================================================
 
 const QUALITY_PRESETS = {
-  niedrig: { resScale: 0.75, shadows: 0, antialias: false, viewDist: 1300, particles: 0.35, trees: 0.45, physicalPaint: false, maxDpr: 1 },
-  mittel:  { resScale: 0.9,  shadows: 1, antialias: true,  viewDist: 1900, particles: 0.65, trees: 0.7,  physicalPaint: false, maxDpr: 1 },
-  hoch:    { resScale: 1.0,  shadows: 2, antialias: true,  viewDist: 2600, particles: 1.0,  trees: 1.0,  physicalPaint: true,  maxDpr: 1.5 },
-  ultra:   { resScale: 1.0,  shadows: 3, antialias: true,  viewDist: 4000, particles: 1.0,  trees: 1.3,  physicalPaint: true,  maxDpr: 2 },
+  niedrig: { resScale: 0.75, shadows: 0, antialias: false, viewDist: 1300, particles: 0.35, trees: 0.45, physicalPaint: false, maxDpr: 1, post: 0, skid: 0, carLod: 0.6 },
+  mittel:  { resScale: 0.9,  shadows: 1, antialias: true,  viewDist: 1900, particles: 0.65, trees: 0.7,  physicalPaint: false, maxDpr: 1, post: 0, skid: 1, carLod: 0.8 },
+  hoch:    { resScale: 1.0,  shadows: 2, antialias: true,  viewDist: 2600, particles: 1.0,  trees: 1.0,  physicalPaint: true,  maxDpr: 1.5, post: 1, skid: 1, carLod: 1 },
+  ultra:   { resScale: 1.0,  shadows: 3, antialias: true,  viewDist: 4000, particles: 1.0,  trees: 1.3,  physicalPaint: true,  maxDpr: 2, post: 1, skid: 1, carLod: 1.4 },
 };
 const SHADOW_SIZES = [0, 1024, 2048, 4096];
 
@@ -417,6 +417,7 @@ const Render = {
       if (this.sun.shadow.mapSize.x !== s) { this.sun.shadow.mapSize.set(s, s); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
     }
     this.camera.far = q.viewDist; this.camera.updateProjectionMatrix();
+    if (this.composer) { this.composer.dispose(); this.composer = null; }   // Neuaufbau mit aktueller Kantenglättung/Größe
     if (this.scene && this.scene.fog) { this.scene.fog.far = q.viewDist * 0.95; this.scene.fog.near = Math.min(400, q.viewDist * 0.2); }
     this.resize();
   },
@@ -498,7 +499,40 @@ const Render = {
   updateParticles(dt) { if (this.fx) for (const k in this.fx) this.fx[k].update(dt); },
   clearParticles() { if (this.fx) for (const k in this.fx) this.fx[k].clear(); },
 
-  render(scene = this.scene, camera = this.camera) { this.renderer.render(scene, camera); },
+  /**
+   * Nachbearbeitung (Phase 6): dezentes Bloom (Bremsscheiben, Rücklicht, Sonne auf Lack),
+   * Vignette und leichte Farbkorrektur; Kantenglättung per MSAA-Renderziel. Nur für die Spielszene.
+   */
+  _post() {
+    const q = this.quality, want = q.post > 0 && this.renderer.capabilities.isWebGL2;
+    if (!want) { if (this.composer) { this.composer.dispose(); this.composer = null; this.renderer.toneMapping = THREE.ACESFilmicToneMapping; } return null; }
+    const pr = this.renderer.getPixelRatio(), w = Math.round(this.width * pr), h = Math.round(this.height * pr);
+    if (!this.composer) {
+      const rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: q.antialias ? 4 : 0 });
+      const c = this.composer = new EffectComposer(this.renderer, rt);
+      this.postRender = new RenderPass(this.scene, this.camera); c.addPass(this.postRender);
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.3, 0.5, 2.4); c.addPass(this.bloom);   // Schwelle im linearen HDR (vor Belichtung 0,62)
+      this.grade = new ShaderPass({
+        uniforms: { tDiffuse: { value: null }, vig: { value: 0.32 }, sat: { value: 1.06 } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; uniform float vig; uniform float sat; varying vec2 vUv;
+          void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+            c.rgb = mix(vec3(l), c.rgb, sat); vec2 d = vUv - 0.5; float v = 1.0 - vig * smoothstep(0.25, 0.85, dot(d, d) * 2.2);
+            gl_FragColor = vec4(c.rgb * v, c.a); }`,
+      });
+      c.addPass(this.grade);
+      c.addPass(new OutputPass());
+      this._postSize = '';
+    }
+    const key = w + 'x' + h;
+    if (this._postSize !== key) { this._postSize = key; this.composer.setPixelRatio(1); this.composer.setSize(w, h); }
+    this.postRender.scene = this.scene; this.postRender.camera = this.camera;
+    return this.composer;
+  },
+  render(scene = this.scene, camera = this.camera) {
+    const c = scene === this.scene && camera === this.camera && this.scene ? this._post() : null;
+    if (c) c.render(); else this.renderer.render(scene, camera);
+  },
 };
 
 const TIME_OF_DAY = {
@@ -512,7 +546,9 @@ const TIME_OF_DAY = {
 //  Kameras: Cockpit (Kopfbewegung, Shake, Blick links/rechts/zurück), Verfolger nah/fern
 // ---------------------------------------------------------------------------
 const CAMERA_MODES = ['cockpit', 'tcam', 'nose', 'chaseNear', 'chaseFar', 'tv'];
-const CAMERA_NAMES = { cockpit: 'Cockpit', tcam: 'T-Cam', nose: 'Nasenkamera', chaseNear: 'Verfolger nah', chaseFar: 'Verfolger fern', tv: 'TV-Kamera' };
+const CAMERA_NAMES = { cockpit: 'Cockpit', tcam: 'T-Cam', nose: 'Nasenkamera', chaseNear: 'Verfolger nah', chaseFar: 'Verfolger fern', tv: 'TV-Kamera', heli: 'Helikopter' };
+/** Kameras in der Wiederholung (zusätzlich Helikopter) */
+const REPLAY_CAMS = ['tv', 'heli', 'chaseNear', 'chaseFar', 'tcam', 'cockpit', 'nose'];
 
 class CameraRig {
   constructor(camera) {
@@ -523,7 +559,7 @@ class CameraRig {
     this._v = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._e = new THREE.Euler(); this._m = new THREE.Matrix4();
     this._fwd = new THREE.Vector3(); this._up = new THREE.Vector3(); this._right = new THREE.Vector3();
   }
-  setMode(m) { this.mode = m; this.init = false; }
+  setMode(m) { this.mode = m; this.init = false; this._heliInit = false; }
   /** car: { position (Vector3), quaternion, vehicle } */
   update(dt, car, opts) {
     const cam = this.cam, q = car.quaternion, p = car.position, veh = car.vehicle;
@@ -550,6 +586,19 @@ class CameraRig {
       const dist = cam.position.distanceTo(p);
       cam.fov = clamp(2 * Math.atan(9 / Math.max(1, dist)) / DEG, 6, 55);
       cam.near = 0.5;
+    } else if (this.mode === 'heli') {
+      // Helikopter: hoch hinter dem Auto, ruhig nachgeführt, Blick schräg nach unten
+      const carYaw = Math.atan2(-fwd.x, -fwd.z);
+      if (!this.init) { this.yaw = carYaw; this.init = true; }
+      this.yaw += wrapAngle(carYaw - this.yaw) * (1 - Math.exp(-dt * 1.2));
+      const tx = p.x + Math.sin(this.yaw) * 34, tz = p.z + Math.cos(this.yaw) * 34, ty = p.y + 30;
+      if (!this._heliInit) { this.pos.set(tx, ty, tz); this._heliInit = true; }
+      const k = 1 - Math.exp(-dt * 2.5);
+      this.pos.x += (tx - this.pos.x) * k; this.pos.y += (ty - this.pos.y) * k; this.pos.z += (tz - this.pos.z) * k;
+      if (this.pos.distanceTo(p) > 120) this.pos.set(tx, ty, tz);
+      cam.position.copy(this.pos); cam.up.set(0, 1, 0);
+      this.look.set(p.x - fwd.x * 12, p.y, p.z - fwd.z * 12); cam.lookAt(this.look);
+      cam.fov = 40; cam.near = 0.5;
     } else if (this.mode === 'nose') {
       const eye = this._v.set(0, 0.27, -2.38);   // vor der Vorderachse, über dem Frontflügel
       cam.position.copy(eye).applyQuaternion(q).add(p);

@@ -213,6 +213,34 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
 #toasts { position: fixed; z-index: 80; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
 #toasts div { background: rgba(14,17,23,0.95); border-left: 4px solid var(--info); padding: 10px 18px; font-size: 14px; max-width: 70vw; animation: msgIn 0.2s ease-out; }
 @media (max-width: 1100px) { #hudCenter { width: 440px; } .screen { padding: 22px 24px; } .brand { font-size: 52px; } .wiz-body { grid-template-columns: 1fr; } }
+
+/* Wiederholung */
+#replay { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: 10px 18px 14px; background: linear-gradient(0deg, rgba(7,8,11,0.92), rgba(7,8,11,0.55) 70%, transparent); font-size: 13px; }
+#replay.hidden { display: none; }
+#replay .rtop { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+#replay .rtitle { color: var(--acc); font-weight: 900; font-style: italic; letter-spacing: 0.14em; text-transform: uppercase; }
+#replay .rcar { font-size: 20px; font-weight: 900; font-style: italic; }
+#replay .rcar i { display: inline-block; width: 6px; height: 18px; margin-right: 8px; vertical-align: -2px; }
+#replay .rinfo { color: var(--tx1); margin-left: auto; font-variant-numeric: tabular-nums; }
+#replay .rtl { position: relative; height: 18px; margin: 4px 0 8px; cursor: pointer; }
+#replay .rtl .bg { position: absolute; left: 0; right: 0; top: 7px; height: 4px; background: var(--bg3); }
+#replay .rtl .fg { position: absolute; left: 0; top: 7px; height: 4px; background: var(--acc); }
+#replay .rtl .ev { position: absolute; top: 3px; width: 3px; height: 12px; margin-left: -1px; opacity: 0.85; }
+#replay .rtl .ev.contact { background: var(--warn); } #replay .rtl .ev.out { background: var(--bad); } #replay .rtl .ev.pass { background: var(--ok); } #replay .rtl .ev.sc { background: #ff8a00; }
+#replay .rtl .knob { position: absolute; top: 2px; width: 4px; height: 14px; margin-left: -2px; background: var(--tx0); }
+#replay .rbtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#replay .rbtns button { background: var(--bg2); color: var(--tx0); border: 0; border-left: 3px solid transparent; padding: 7px 11px; font-weight: 800; font-size: 13px; cursor: pointer; transform: skewX(-10deg); }
+#replay .rbtns button:hover { background: var(--bg3); border-left-color: var(--acc); }
+#replay .rbtns button.on { border-left-color: var(--acc); background: var(--bg3); }
+#replay .rbtns .sep { width: 10px; }
+#replay .rkeys { color: var(--tx2); font-size: 11px; margin-top: 6px; }
+#replayTower { position: fixed; left: 14px; top: 14px; z-index: 30; background: rgba(7,8,11,0.72); padding: 6px 0; min-width: 170px; font-size: 12px; font-weight: 700; }
+#replayTower.hidden { display: none; }
+#replayTower .hd { padding: 2px 10px 5px; color: var(--acc); font-style: italic; text-transform: uppercase; letter-spacing: 0.1em; }
+#replayTower .tr { display: flex; gap: 6px; padding: 1px 10px; cursor: pointer; align-items: center; }
+#replayTower .tr:hover { background: var(--bg3); }
+#replayTower .tr.me { background: rgba(255,59,31,0.25); } #replayTower .tr.cur { outline: 1px solid var(--tx0); }
+#replayTower .tr b { width: 18px; text-align: right; color: var(--tx1); } #replayTower .tr i { width: 4px; height: 12px; }
 </style>
 <script type="importmap">
 {
@@ -283,6 +311,8 @@ table.bind td:first-child { color: var(--tx1); width: 40%; }
   <div id="hudMsg"></div>
 </div>
 
+<div id="replay" class="hidden"></div>
+<div id="replayTower" class="hidden"></div>
 <div id="screens"></div>
 <div id="modalRoot"></div>
 <div id="toasts"></div>
@@ -316,4 +346,9 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 

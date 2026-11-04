@@ -314,6 +314,7 @@ class RaceSession {
     if (this.state === 'race') { en.wreck = true; en.wreckT = 0; this._neutralize(en); } else if (!en.player) en.active = false;
     this.msg(`${en.name} ist ausgeschieden (${why})`, en, 'out');
     Events.emit('race:retired', en, why);
+    if (this.onMark) this.onMark('out', en.idx, `${en.name} ausgeschieden`);
   }
   _onTiming(en, type, data) {
     if (type === 'lap') {
@@ -414,6 +415,7 @@ class RaceSession {
         this._hurt(en, sp * (a.player || b.player ? 0.8 : 0.45), lx, lz);
       }
       if ((a.player || b.player) && sp > 3) Events.emit('race:contact', sp);
+      if (sp > 2.5 && this.onMark) this.onMark('contact', (a.player || b.player) ? (a.player ? a : b).idx : a.idx, `Kontakt ${a.name} / ${b.name}`);
     });
     // Windschatten / verwirbelte Luft (≈ 20 Hz)
     this.slipT -= h;

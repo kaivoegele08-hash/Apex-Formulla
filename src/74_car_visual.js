@@ -326,16 +326,18 @@ class CarVisual {
     this.carbonMat = new THREE.MeshStandardMaterial({ map: Tex.carbon(), color: 0x9a9aa0, roughness: 0.42, metalness: 0.35 });
     this.endMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(team.colors[0]), roughness: 0.35, metalness: 0.2 });
     const add = (geo, mat, parent = root, cast = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
-    add(G.body, this.paint);
+    const fine = [], mid = [], cast = [];
+    cast.push(add(G.body, this.paint));
     this.cockpit = add(G.cockpitSides, new THREE.MeshStandardMaterial(Object.assign({}, paintParams, { side: THREE.DoubleSide })));
-    add(G.carbon, this.carbonMat);
-    add(G.endplates, this.endMat);
-    add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 }));
-    add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false);
-    add(G.rim, new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.95 }), root, false);
+    cast.push(add(G.carbon, this.carbonMat));
+    cast.push(add(G.endplates, this.endMat));
+    mid.push(this.cockpit);
+    mid.push(add(G.halo, new THREE.MeshStandardMaterial({ color: 0x1b1d21, roughness: 0.35, metalness: 0.6 })));
+    fine.push(add(G.interior, new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9, side: THREE.DoubleSide }), root, false));
+    mid.push(add(G.rim, new THREE.MeshStandardMaterial({ color: 0x15161a, roughness: 0.95 }), root, false));
     for (const sx of [-1, 1]) {
       const mg = new THREE.Mesh(G.mirrorGlass, new THREE.MeshStandardMaterial({ color: 0x8fa6c0, roughness: 0.05, metalness: 1.0 }));
-      mg.position.set(sx * 0.44, 0.40, -0.474); root.add(mg);
+      mg.position.set(sx * 0.44, 0.40, -0.474); root.add(mg); fine.push(mg);
     }
     // Bewegliche Flügelklappen
     this.fwFlaps = [];
@@ -347,7 +349,7 @@ class CarVisual {
     add(G.rwFlap, this.endMat, this.rwPivot);
     // Rücklicht
     this.lightMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1010, emissiveIntensity: 0 });
-    const rl = new THREE.Mesh(G.rainLight, this.lightMat); rl.position.set(0, 0.04, 2.385); root.add(rl);
+    const rl = new THREE.Mesh(G.rainLight, this.lightMat); rl.position.set(0, 0.04, 2.385); root.add(rl); mid.push(rl);
     // Fahrerhelm
     this.helmet = new THREE.Group(); this.helmet.position.set(0, 0.49, -0.17);
     const hm = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(team.colors[1]), roughness: 0.25, clearcoat: 1 });
@@ -363,16 +365,16 @@ class CarVisual {
       const wg = G.wheel[front ? 'F' : 'R'];
       const rootW = new THREE.Group(), steer = new THREE.Group(), spin = new THREE.Group();
       rootW.add(steer); steer.add(spin); root.add(rootW);
-      const tm = new THREE.Mesh(wg.tread, tyreMat); tm.castShadow = true; spin.add(tm);
+      const tm = new THREE.Mesh(wg.tread, tyreMat); tm.castShadow = true; spin.add(tm); cast.push(tm);
       const sideMat = new THREE.MeshStandardMaterial({ map: Tex.tyreSide(COMPOUNDS.medium.color), roughness: 0.85 });
       const sideMatIn = new THREE.MeshStandardMaterial({ color: 0x18181a, roughness: 0.9 });
-      const so = new THREE.Mesh(wg.side, sideMat); so.rotation.y = sgn * Math.PI / 2; so.position.x = sgn * wg.W / 2; spin.add(so);
-      const si = new THREE.Mesh(wg.side, sideMatIn); si.rotation.y = -sgn * Math.PI / 2; si.position.x = -sgn * wg.W / 2; spin.add(si);
+      const so = new THREE.Mesh(wg.side, sideMat); so.rotation.y = sgn * Math.PI / 2; so.position.x = sgn * wg.W / 2; spin.add(so); mid.push(so);
+      const si = new THREE.Mesh(wg.side, sideMatIn); si.rotation.y = -sgn * Math.PI / 2; si.position.x = -sgn * wg.W / 2; spin.add(si); fine.push(si);
       const rimMat = new THREE.MeshStandardMaterial({ map: Tex.rim(false), roughness: 0.4, metalness: 0.6, alphaTest: 0.5, side: THREE.DoubleSide });
-      const rf = new THREE.Mesh(wg.rimFace, rimMat); rf.rotation.y = sgn * Math.PI / 2; rf.position.x = sgn * (wg.W / 2 - 0.035); spin.add(rf);
-      spin.add(new THREE.Mesh(wg.barrel, barrelMat));
+      const rf = new THREE.Mesh(wg.rimFace, rimMat); rf.rotation.y = sgn * Math.PI / 2; rf.position.x = sgn * (wg.W / 2 - 0.035); spin.add(rf); mid.push(rf);
+      const br = new THREE.Mesh(wg.barrel, barrelMat); spin.add(br); fine.push(br);
       const glow = new THREE.MeshStandardMaterial({ color: 0x2a2a2c, roughness: 0.5, metalness: 0.3, emissive: 0xff5a10, emissiveIntensity: 0 });
-      const disc = new THREE.Mesh(wg.disc, glow); disc.position.x = -sgn * 0.02; steer.add(disc);
+      const disc = new THREE.Mesh(wg.disc, glow); disc.position.x = -sgn * 0.02; steer.add(disc); fine.push(disc);
       this.wheels.push({ root: rootW, steer, spin, sideMat, rimMat, glow, blurred: false, compound: 'medium' });
     }
     // Querlenker (dynamisch)
@@ -397,9 +399,14 @@ class CarVisual {
     this.swPivot.add(this.sw.group); root.add(this.swPivot);
     this._p = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._v2 = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
     this.cockpitView = false;
+    // Detailstufen: fine = ab Stufe 1 aus, mid = ab Stufe 2 aus (siehe setCarLod)
+    this.lodFine = fine.concat(this.rods.map(r => r.mesh)); this.lodMid = mid.concat(this.fwFlaps, [this.rwPivot, this.helmet]);
+    this.shadowMeshes = cast.concat([this.cockpit]);
     root.traverse(o => { if (o.isMesh) o.frustumCulled = true; });
   }
 
+  /** Schatten nur von den großen Teilen (Kleinteile verdoppeln sonst die Draw Calls im Schattenpass) */
+  setShadows(on) { this.root.traverse(o => { if (o.isMesh) o.castShadow = false; }); if (on) for (const m of this.shadowMeshes) m.castShadow = true; }
   setCompound(id) {
     for (const w of this.wheels) if (w.compound !== id) { w.compound = id; w.sideMat.map = Tex.tyreSide(COMPOUNDS[id].color, w.blurred); w.sideMat.needsUpdate = true; }
   }

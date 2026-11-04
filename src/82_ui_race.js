@@ -229,9 +229,87 @@ Object.assign(UI, {
       race.fastest.entry ? h('div.hint', 'Schnellste Runde: ', h('b', `${race.fastest.entry.name} ${fmtTime(race.fastest.time)}`), ` (Runde ${race.fastest.lap})`) : null,
       h('div.scroll', { style: { flex: '1' } }, tbl),
       Game.seasonRound && Game.season
-        ? h('div.actions', btn('Telemetrie', () => this.show('telemetry')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))
-        : h('div.actions', btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+        ? h('div.actions', btn('Wiederholung', () => Game.openReplay('results')), btn('Punkte & Meisterschaftstabelle', () => { Game.scoreSeasonRace(); Game.toMenu(); this.show('season', { justScored: true }); }, 'primary', '▶'))
+        : h('div.actions', btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Nochmal fahren', () => Game.startRace(), 'primary'), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
     );
+  },
+
+  // ---------------------------------------------------------------------------
+  //  Wiederholung: Steuerleiste, Zeitleiste mit Ereignissen, Positionsliste
+  // ---------------------------------------------------------------------------
+  showReplay(on) {
+    const el = $('replay'), tw = $('replayTower');
+    if (!el) return;
+    el.classList.toggle('hidden', !on); tw.classList.toggle('hidden', !on || Game.mode !== 'race');
+    if (this._rpKey) { window.removeEventListener('keydown', this._rpKey, true); this._rpKey = null; }
+    if (!on) { el.innerHTML = ''; tw.innerHTML = ''; return; }
+    const R = Game.replay;
+    const b = (label, fn, title = '') => h('button', { title, onclick: (e) => { e.stopPropagation(); AudioSys.uiClick(); fn(); this.updateReplay(Game.rp, R); } }, label);
+    const tl = h('div.rtl', h('div.bg'), h('div.fg'), h('div.knob'));
+    const seek = (ev) => { const r = tl.getBoundingClientRect(), f = clamp((ev.clientX - r.left) / r.width, 0, 1); Game.replaySeekTo(R.start + f * R.length); this.updateReplay(Game.rp, R); };
+    let drag = false;
+    tl.addEventListener('pointerdown', (ev) => { drag = true; tl.setPointerCapture(ev.pointerId); seek(ev); });
+    tl.addEventListener('pointermove', (ev) => { if (drag) seek(ev); });
+    tl.addEventListener('pointerup', () => { drag = false; });
+    const span = Math.max(1, R.length);
+    for (const e of R.events) { if (e.type === 'start') continue; tl.append(h('div.ev.' + e.type, { style: { left: ((e.t - R.start) / span * 100) + '%' }, title: e.text })); }
+    const speeds = h('span', REPLAY_SPEEDS.map(x => b(x < 1 ? `${x === 0.25 ? '¼' : '½'}×` : `${x}×`, () => Game.replaySpeed(x), 'Tempo (Tasten , und .)')));
+    speeds.classList.add('rspd');
+    el.append(
+      h('div.rtop', h('span.rtitle', 'Wiederholung'), h('span.rcar', { id: 'rpCar' }), h('span.rinfo', { id: 'rpInfo' })),
+      tl,
+      h('div.rbtns',
+        b('⏮ Ereignis', () => Game.replayEvent(-1), 'Vorheriges Ereignis ([)'), b('−10 s', () => Game.replaySeek(-10)), h('span', { id: 'rpPlay' }, b('Pause', () => Game.replayToggle(), 'Abspielen/Pause (Leertaste)')), b('+10 s', () => Game.replaySeek(10)), b('Ereignis ⏭', () => Game.replayEvent(1), 'Nächstes Ereignis (])'),
+        h('span.sep'), speeds, h('span.sep'),
+        h('span', { id: 'rpCam' }, b('Kamera', () => Game.replayCam(), 'Kamera wechseln (C)')),
+        b('◀ Auto', () => Game.replayFollow(-1), 'Vorheriges Auto (↑ / Schaltwippe)'), b('Auto ▶', () => Game.replayFollow(1), 'Nächstes Auto (↓ / Schaltwippe)'),
+        h('span', { id: 'rpAuto' }, b('Regie', () => Game.replayAuto(), 'Automatische Regie an/aus (F)')),
+        h('span.sep'), b('Beenden', () => Game.closeReplay(), 'Zurück (Esc)')),
+      h('div.rkeys', 'Leertaste Abspielen/Pause · ← → 5 s spulen · ↑ ↓ Auto wechseln · , . Tempo · [ ] Ereignisse · C Kamera · F Regie · Esc zurück · Zeitleiste anklicken zum Springen'),
+    );
+    this._rpKey = (ev) => {
+      if (Game.state !== 'replay') return;
+      const k = ev.code;
+      if (k === 'Escape') { ev.preventDefault(); ev.stopPropagation(); Input.keyLatch.delete('Escape'); Input.keys.delete('Escape'); Game.closeReplay(); return; }
+      else if (k === 'ArrowLeft' || k === 'ArrowRight') { Game.replaySeek(k === 'ArrowLeft' ? -5 : 5); ev.preventDefault(); }
+      else if (k === 'ArrowUp' || k === 'ArrowDown') { Game.replayFollow(k === 'ArrowUp' ? -1 : 1); ev.preventDefault(); }
+      else return;
+      this.updateReplay(Game.rp, R);
+    };
+    window.addEventListener('keydown', this._rpKey, true);
+    this._rpCache = {};
+    this.updateReplay(Game.rp, R);
+  },
+  updateReplay(rp, R) {
+    if (!rp) return;
+    const el = $('replay'); if (!el || el.classList.contains('hidden')) return;
+    const C = this._rpCache || (this._rpCache = {});
+    const set = (id, html) => { if (C[id] !== html) { C[id] = html; const e = $(id); if (e) e.innerHTML = html; } };
+    const src = R.src[rp.follow], team = src.sc ? SC_TEAM : TEAMS.find(t => t.id === src.team) || TEAMS[0];
+    const p = R.sample(rp.t, rp.follow, {});
+    set('rpCar', `<i style="background:${team.colors[0]}"></i>${src.number ? src.number + ' · ' : ''}${src.name}${p.visible ? ` <small style="color:#9aa3ad;font-weight:700">${Math.round(p.speed * 3.6)} km/h · Gang ${p.gear <= 0 ? 'N' : p.gear}</small>` : ''}`);
+    const rel = rp.t - R.start;
+    set('rpInfo', `${fmtClock(rel)} / ${fmtClock(R.length)} · ${rp.speed === 1 ? 'Echtzeit' : rp.speed < 1 ? `Zeitlupe ${rp.speed}×` : `Zeitraffer ${rp.speed}×`}`);
+    const f = R.length > 0 ? rel / R.length * 100 : 0;
+    const fg = el.querySelector('.rtl .fg'), kn = el.querySelector('.rtl .knob');
+    if (fg) fg.style.width = f + '%'; if (kn) kn.style.left = f + '%';
+    const playBtn = el.querySelector('#rpPlay button'); if (playBtn) playBtn.textContent = rp.playing ? 'Pause' : '▶ Abspielen';
+    const camBtn = el.querySelector('#rpCam button'); if (camBtn) camBtn.textContent = 'Kamera: ' + (CAMERA_NAMES[Game.camMode] || Game.camMode);
+    const autoBtn = el.querySelector('#rpAuto button'); if (autoBtn) { autoBtn.textContent = rp.auto ? 'Regie: an' : 'Regie: aus'; autoBtn.classList.toggle('on', rp.auto); }
+    el.querySelectorAll('.rspd button').forEach((bt, i) => bt.classList.toggle('on', REPLAY_SPEEDS[i] === rp.speed));
+    // Positionsliste (Rennfortschritt zum Zeitpunkt)
+    if (Game.mode === 'race') {
+      const rows = [];
+      for (let i = 0; i < R.n; i++) { if (R.src[i].noFocus) continue; const q = R.sample(rp.t, i, {}); rows.push({ i, d: q.visible ? q.dist : -1e12 + i }); }
+      rows.sort((a, b) => b.d - a.d);
+      let html = '<div class="hd">Positionen</div>';
+      rows.forEach((r, k) => {
+        const s = R.src[r.i], tm = TEAMS.find(t => t.id === s.team) || TEAMS[0];
+        html += `<div class="tr${s.player ? ' me' : ''}${r.i === rp.follow ? ' cur' : ''}" data-i="${r.i}"><b>${k + 1}</b><i style="background:${tm.colors[0]}"></i><span>${s.player ? 'DU' : shortName(s.name)}</span></div>`;
+      });
+      const tw = $('replayTower');
+      if (C.tower !== html) { C.tower = html; tw.innerHTML = html; tw.querySelectorAll('.tr').forEach(d => d.onclick = () => { Game.replayFocus(+d.dataset.i); this.updateReplay(Game.rp, R); }); }
+    }
   },
 
   // ---------------------------------------------------------------------------
@@ -252,7 +330,7 @@ Object.assign(UI, {
     return h('section.screen.solid',
       h('header', h('span.crumb', Game.seasonRound ? `Meisterschaft · Runde ${Game.season.round + 1}` : 'Qualifying'), h('h1', isFinite(q.playerBest) ? `Startplatz ${me}` : `Keine gültige Runde – Startplatz ${me}`), h('span', { style: { color: '#7d8898' } }, `${q.track.name} · Pole: ${st[0].name} ${fmtTime(pole)}`)),
       h('div.scroll', { style: { flex: '1' } }, tbl),
-      h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+      h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Wiederholung', () => Game.openReplay('results')), btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
     );
   },
 

@@ -4,7 +4,12 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
-**Stand: Phase 5**
+**Stand: Phase 6**
+- Wiederholung: alle Autos + Safety Car mit 15 Hz aufgezeichnet (≈ 0,8 MB je Minute, Ringpuffer 40 min), Wiedergabe mit Zeitleiste, Ereignismarken (Überholen, Kontakt, Ausfall), Tempo ¼×–4×, alle Kameras + Helikopter, automatische Regie, Positionsliste zum Anklicken
+- Grafik: Reifenspuren beim Blockieren/Rutschen, Nachbearbeitung (dezentes Bloom, Vignette, Farbkorrektur, MSAA im Renderziel), abschaltbar
+- Performance: dreistufige Detailstufen für Gegner, Schatten nur von großen Teilen → Draw Calls in der Startaufstellung 2084 → 686 (−67 %), TV-Kamera 960 → 314; automatische Anpassung schaltet zuerst die Nachbearbeitung ab
+
+**Davor (Phase 5)**
 - Wetter: sonnig, bewölkt, leichter/starker Regen, wechselhaft (Regen setzt im Rennen ein), zufällig – Streckennässe trocknet ab bzw. steigt, Intermediate-/Regenreifen, Gischt, nasse Optik, KI wechselt passend die Reifen
 - Tageszeiten: Vormittag, Nachmittag, Abend, Dämmerung (oder Strecken-Standard)
 - Zwei neue Strecken: Hafenstadt-Kurs (3,45 km Stadtkurs mit Mauern) und Alpental-Ring (5,25 km, 37 m Höhenunterschied)
@@ -43,6 +48,7 @@ Die Quellteile in `src/` werden nach Dateinamen sortiert aneinandergehängt:
 | `30_track.js` | Streckenmodell (Spline, Höhen, Oberflächen) |
 | `40_physics.js` | Fahrzeugphysik, 360 Hz, Reifen, Antrieb, Aero, FFB-Moment |
 | `45_ai.js` | KI: Ideallinie (minimale Krümmung), Tempoprofil, Fahrer-Regler, Verkehr |
+| `46_replay.js` | Wiederholung: Aufzeichnung (Ringpuffer), Interpolation, Regie |
 | `47_race.js` | Zeitnahme, Track Limits, Kollisionen, Schaden, Rennablauf, Training, Ghost/Telemetrie-Aufzeichnung |
 | `48_weather.js` | Wetter: Bewölkung, Regen, Streckennässe |
 | `49_season.js` | Qualifying (KI-Zeitschätzung) und Meisterschaft (Punkte, Wertungen) |
@@ -66,6 +72,7 @@ tools/run-pure.sh tests/physik/test_pit.js       # Boxenstopp: Phasen, Zeitverlu
 tools/run-pure.sh tests/physik/test_sc.js        # Safety Car und VSC: Kolonne, keine Überholmanöver, Neustart
 tools/run-pure.sh tests/physik/test_weather.js   # Regenrennen: Nässe, Reifenwechsel der KI
 tools/run-pure.sh tests/physik/test_season.js    # Qualifying-Schätzung, Meisterschaftswertung
+tools/run-pure.sh tests/physik/test_replay.js    # Wiederholung: Genauigkeit, Speicher, Ringpuffer, Regie
 npm i --no-save three@0.160.0 playwright         # einmalig für Browsertests
 node tests/browser/ffb_test.js                   # FFB-Attrappe G920 + Menü-Fehler
 node tests/browser/audio_test.js                 # Motorklang-Worklet
@@ -74,6 +81,7 @@ node tests/browser/practice_test.js              # Phase 2: Setup, Sektoren, Gho
 node tests/browser/track_test.js                 # Falkenried-Ring, Ideallinie, Rennstart
 node tests/browser/phase4_test.js                # Box anfordern, Boxengasse, Service, Safety Car, Pausemenü
 node tests/browser/phase5_test.js                # Qualifying → Startaufstellung, Meisterschaft, Wertung
+node tests/browser/phase6_test.js                # Wiederholung, Reifenspuren, Nachbearbeitung, Detailstufen
 node tests/audio/test_engine.js                  # Motorklang offline + WAV-Proben
 node tests/browser/ui_test.js
 node tests/browser/smoke_test.js

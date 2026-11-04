@@ -33,16 +33,20 @@ class GhostCar {
   }
 }
 
-/** Detailstufe für entfernte Fahrzeuge: Kleinteile ausblenden, Schatten nur in der Nähe */
-function setCarLod(vis, dist, shadows) {
-  const lvl = dist < 70 ? 0 : dist < 220 ? 1 : 2;
-  if (vis._lod === lvl) return;
-  vis._lod = lvl;
+/**
+ * Detailstufe für entfernte Fahrzeuge (Phase 6): Stufe 0 alles, Stufe 1 ohne Kleinteile
+ * (Spiegel, Querlenker, Bremsscheiben, Innenraum, Lenkrad), Stufe 2 nur Karosserie, Carbon,
+ * Endplatten und Laufflächen (≈ 8 statt ≈ 65 Draw Calls). Schatten nur in Stufe 0.
+ * k = Qualitätsfaktor (Grafik → Detailstufe Gegner).
+ */
+function setCarLod(vis, dist, shadows, k = (Render.quality && Render.quality.carLod) || 1) {
+  const lvl = dist < 45 * k ? 0 : dist < 140 * k ? 1 : 2;
+  if (vis._lod === lvl && vis._lodSh === shadows) return;
+  vis._lod = lvl; vis._lodSh = shadows;
   vis.sw.group.visible = lvl === 0;
-  vis.helmet.visible = lvl < 2;
-  for (const r of vis.rods) r.mesh.visible = lvl === 0;
-  const cast = shadows && lvl === 0;
-  vis.root.traverse(o => { if (o.isMesh) o.castShadow = cast; });
+  for (const o of vis.lodFine) o.visible = lvl === 0;
+  for (const o of vis.lodMid) o.visible = lvl < 2;
+  vis.setShadows(shadows && lvl === 0);
 }
 
 /** TV-Kameras: hinter der Barriere, abwechselnd links/rechts, alle ≈ 170 m */
@@ -115,4 +119,122 @@ class IdealLineVisual {
     this.lastJ = j0;
     this.col.needsUpdate = true;
   }
+}
+
+/**
+ * Wiedergabe: „Fahrzeug“-Attrappe aus einer Aufzeichnungsprobe, damit CarVisual, Kamera und
+ * Lenkrad-Display unverändert funktionieren. Statische Werte (Radpositionen, Federweg in Ruhe,
+ * Energieanzeige) kommen vom echten Fahrzeug der Quelle.
+ */
+class ReplayCar {
+  constructor(src) {
+    const v = src.get ? null : src.vehicle;
+    this.spec = CAR_SPEC; this.src = src;
+    this.pos = { x: 0, y: 0, z: 0 }; this.prevPos = this.pos; this.q = { x: 0, y: 0, z: 0, w: 1 }; this.prevQ = this.q;
+    this.vel = { x: 0, y: 0, z: 0 };
+    this.wheels = [0, 1, 2, 3].map(i => {
+      const w = v ? v.wheels[i] : null;
+      return { lx: w ? w.lx : (i % 2 ? 0.8 : -0.8), lz: w ? w.lz : (i < 2 ? -1.8 : 1.8), yTop: w ? w.yTop : 0, L: w ? w.L : 0.3, steer: 0, spin: 0, omega: 0, brakeTemp: 300, tyre: w ? w.tyre : { flat: 0, tEff: 90, c: 0.5 }, locked: false };
+    });
+    this.rest = this.wheels.map(w => w.yTop - w.L);
+    this.compound = 'medium'; this.aeroFlap = 0; this.harvesting = false; this.pitLimiter = false; this.limiterCut = false;
+    this.speed = 0; this.speedKmh = 0; this.rpm = 4000; this.gear = 1; this.trackS = 0; this.trackIdx = 0;
+    this.accelLat = 0; this.accelLong = 0; this.kerbVib = 0; this.surfVib = 0; this.scrapeIntensity = 0; this.time = 0; this.impactTime = -10; this.impact = 0;
+    this.input = { throttle: 0, brake: 0, steer: 0 }; this.shiftDenied = 0; this.overtakeActive = false;
+    this._v = v;
+  }
+  get brakeBias() { return this._v ? this._v.brakeBias : 0.56; }
+  get socFrac() { return this._v ? this._v.socFrac : 0.8; }
+  get ersMode() { return this._v ? this._v.ersMode : ERS_MODES[1]; }
+  /** p = ReplayRecorder.sample(...), dt = Wiedergabe-Zeitschritt (für Raddrehung, Beschleunigung) */
+  apply(p, dt) {
+    const px = this.pos.x, pz = this.pos.z;
+    this.pos = { x: p.x, y: p.y, z: p.z }; this.prevPos = this.pos;
+    this.q = { x: p.qx, y: p.qy, z: p.qz, w: p.qw }; this.prevQ = this.q;
+    if (dt > 0) { this.vel = { x: (p.x - px) / dt, y: 0, z: (p.z - pz) / dt }; if (Math.hypot(this.vel.x, this.vel.z) > 150) this.vel = { x: 0, y: 0, z: 0 }; }
+    const prevSp = this.speed;
+    this.speed = p.speed; this.speedKmh = p.speed * 3.6; this.rpm = p.rpm; this.gear = p.gear; this.trackS = p.trackS;
+    if (dt > 0) this.accelLong = clamp(this.accelLong * 0.8 + 0.2 * (p.speed - prevSp) / dt, -60, 40);
+    this.compound = p.compound; this.aeroFlap = p.flap; this.pitLimiter = p.inPit;
+    this.input.throttle = p.throttle; this.input.brake = p.brake; this.input.steer = p.steer / ((CAR_SPEC.maxWheelAngleDeg || 20) * DEG);
+    this.time += dt;
+    const R = CAR_SPEC.rR || 0.36;
+    this.wheels.forEach((w, i) => {
+      w.steer = i < 2 ? p.steer : 0;
+      w.omega = p.locked && p.brake > 0.5 && i < 2 ? 0 : p.speed / R;
+      w.spin += w.omega * dt;
+      w.brakeTemp = 300 + p.brake * Math.min(1, p.speed / 40) * 700;
+      // Aufstandspunkt in Weltkoordinaten (für Gischt/Reifenspuren): q · (lx, Federweg − r, lz)
+      const vx = w.lx, vy = this.rest[i] - R, vz = w.lz, { x: qx, y: qy, z: qz, w: qw } = this.q;
+      const tx = 2 * (qy * vz - qz * vy), ty = 2 * (qz * vx - qx * vz), tz = 2 * (qx * vy - qy * vx);
+      w.cx = p.x + vx + qw * tx + (qy * tz - qz * ty); w.cy = p.y + vy + qw * ty + (qz * tx - qx * tz); w.cz = p.z + vz + qw * tz + (qx * ty - qy * tx);
+    });
+  }
+}
+
+/**
+ * Reifenspuren: dunkle Streifen auf Asphalt bei blockierenden oder stark rutschenden Rädern.
+ * Ringpuffer aus Vierecken (ältestes wird überschrieben), nur geänderte Bereiche werden hochgeladen.
+ */
+class SkidMarks {
+  constructor(max = 5000) {
+    this.max = max; this.next = 0; this.count = 0;
+    const pos = this.pos = new Float32Array(max * 4 * 3), col = this.col = new Float32Array(max * 4 * 4);
+    const idx = new Uint32Array(max * 6);
+    for (let i = 0; i < max; i++) { const a = i * 4; idx.set([a, a + 1, a + 2, a + 2, a + 1, a + 3], i * 6); }
+    const g = this.geo = new THREE.BufferGeometry();
+    this.pA = new THREE.BufferAttribute(pos, 3); this.pA.setUsage(THREE.DynamicDrawUsage);
+    this.cA = new THREE.BufferAttribute(col, 4); this.cA.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', this.pA); g.setAttribute('color', this.cA); g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.setDrawRange(0, 0);
+    const m = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+    this.mesh = new THREE.Mesh(g, m); this.mesh.frustumCulled = false; this.mesh.renderOrder = 1;
+    this.last = new Map(); this.dirty = [];
+  }
+  /** key = Rad-Kennung; x,y,z = Aufstandspunkt; hx,hz = Fahrtrichtung (normiert); w = Breite; a = Deckkraft 0…1 (0 = keine Spur) */
+  add(key, x, y, z, hx, hz, w, a) {
+    const L = this.last.get(key);
+    if (a <= 0.02) { if (L) this.last.delete(key); return; }
+    if (!L) { this.last.set(key, { x, y, z, hx, hz, w, a }); return; }
+    const dx = x - L.x, dz = z - L.z, d2 = dx * dx + dz * dz;
+    if (d2 < 0.6 * 0.6) return;
+    if (d2 > 144) { this.last.set(key, { x, y, z, hx, hz, w, a }); return; }    // Sprung (Zurücksetzen); bis 12 m je Bild ist normal (300 km/h bei 30 FPS)
+    const i = this.next; this.next = (this.next + 1) % this.max; this.count = Math.min(this.max, this.count + 1);
+    const P = this.pos, C = this.col, o = i * 12, oc = i * 16;
+    const px0 = -L.hz * L.w * 0.5, pz0 = L.hx * L.w * 0.5, px1 = -hz * w * 0.5, pz1 = hx * w * 0.5;
+    P.set([L.x - px0, L.y + 0.025, L.z - pz0, L.x + px0, L.y + 0.025, L.z + pz0, x - px1, y + 0.025, z - pz1, x + px1, y + 0.025, z + pz1], o);
+    const a0 = L.a * 0.55, a1 = a * 0.55;
+    C.set([0.04, 0.04, 0.045, a0, 0.04, 0.04, 0.045, a0, 0.04, 0.04, 0.045, a1, 0.04, 0.04, 0.045, a1], oc);
+    this.dirty.push(i);
+    L.x = x; L.y = y; L.z = z; L.hx = hx; L.hz = hz; L.w = w; L.a = a;
+  }
+  /** Fahrzeug auswerten (echtes Vehicle oder ReplayCar ohne Schlupfdaten → nichts) */
+  fromVehicle(id, v, water = 0) {
+    if (!v.wheels[0].sComb && v.wheels[0].sComb !== 0) return;
+    const sp = v.speed; if (sp < 6 || water > 0.35) { for (let k = 0; k < 4; k++) this.add(id * 4 + k, 0, 0, 0, 0, 1, 0, 0); return; }
+    const hl = Math.hypot(v.vel.x, v.vel.z) || 1, hx = v.vel.x / hl, hz = v.vel.z / hl;
+    for (let k = 0; k < 4; k++) {
+      const w = v.wheels[k];
+      let a = 0;
+      if (w.contact && !SURFACES[w.surf].offTrack && !SURFACES[w.surf].dirt) {
+        if (w.locked) a = 0.9;
+        else a = smoothstep(1.25, 2.6, w.sComb) * smoothstep(4, 14, w.slipVel);
+        a *= 1 - water * 2;
+      }
+      this.add(id * 4 + k, w.cx, w.cy, w.cz, hx, hz, k < 2 ? CAR_SPEC.tyreWidthF : CAR_SPEC.tyreWidthR, a);
+    }
+  }
+  /** Einmal pro Bild: geänderte Bereiche hochladen */
+  flush() {
+    if (!this.dirty.length) return;
+    this.dirty.sort((a, b) => a - b);
+    let s = this.dirty[0], e = s;
+    const push = () => { this.pA.addUpdateRange(s * 12, (e - s + 1) * 12); this.cA.addUpdateRange(s * 16, (e - s + 1) * 16); };
+    for (let k = 1; k < this.dirty.length; k++) { const i = this.dirty[k]; if (i === e + 1) e = i; else { push(); s = e = i; } }
+    push();
+    this.pA.needsUpdate = true; this.cA.needsUpdate = true;
+    this.dirty.length = 0;
+    this.geo.setDrawRange(0, this.count * 6);
+  }
+  clear() { this.next = 0; this.count = 0; this.last.clear(); this.dirty.length = 0; this.geo.setDrawRange(0, 0); }
 }
