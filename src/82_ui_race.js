@@ -64,7 +64,7 @@ Object.assign(UI, {
         h('div.col', { style: { flex: '0 1 420px' } },
           h('div.card', h('h3', 'Regeln'),
             fieldRow('Schaden', toggle([{ value: 'off', label: 'Aus' }, { value: 'reduced', label: 'Reduziert' }, { value: 'full', label: 'Realistisch' }], R.damage, v => { R.damage = v; save(); })),
-            h('p', { style: { fontSize: '12px' } }, 'Track Limits: alle vier Räder jenseits der weißen Linie = Verwarnung; ab der 4. Verwarnung 5 s Zeitstrafe. Frühstart: 5 s.'),
+            h('p', { style: { fontSize: '12px' } }, 'Track Limits: alle vier Räder jenseits der weißen Linie = Verwarnung; ab der 4. Verwarnung 5 s Zeitstrafe. Start: das Auto wird gehalten, bis die Ampel erlischt.'),
           ),
           h('div.card', h('h3', 'Startreifen'), chips(COMPOUND_ORDER.slice(0, 3).map(id => ({ value: id, label: COMPOUNDS[id].name, color: COMPOUNDS[id].color })), S.game.compound, v => { S.game.compound = v; save(); })),
           h('div.card', h('h3', 'Fahrhilfen'),

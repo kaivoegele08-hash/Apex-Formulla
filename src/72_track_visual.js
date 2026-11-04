@@ -452,7 +452,7 @@ class TrackVisual {
     beam.translate(mx, my + 0.4, mz); geo.push(beam);
     this._add(mergeGeometries(geo), M.dark, { name: 'gantry', cast: true });
     // Banner beidseitig
-    const bt = Tex.banner('KURSTADT RINGPARK', 'APEX FORMULA WORLD CHAMPIONSHIP');
+    const bt = Tex.banner(T.name.toUpperCase(), 'APEX FORMULA WORLD CHAMPIONSHIP');
     const bm = new THREE.MeshStandardMaterial({ map: bt, roughness: 0.6, emissive: 0xffffff, emissiveMap: bt, emissiveIntensity: 0.15 });
     for (const side of [1, -1]) {
       const p = new THREE.PlaneGeometry(width * 0.92, 1.25);
