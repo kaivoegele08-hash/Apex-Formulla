@@ -220,7 +220,7 @@ const Game = {
   },
   /** Alles entfernen, was zu einer Sitzung gehört */
   _teardown() {
-    CarDebris.clear(); Radio.reset(); TeamOrders.reset(); if (this.school) { this.school.dispose(); this.school = null; }
+    CarDebris.clear(); VisorRain.hide(); Radio.reset(); TeamOrders.reset(); if (this.school) { this.school.dispose(); this.school = null; }
     const sc = Render.scene;
     if (sc) {
       if (this.carVis) sc.remove(this.carVis.root);
@@ -929,6 +929,7 @@ const Game = {
       Render.setWeather(wx.cloud, wx.rain);
       if (this.trackVisual) this.trackVisual.setWet(wx.water);
       if (Render.rain) Render.rain.update(dt, wx.rain * (Render.quality.particles > 0 ? 1 : 0.4), Render.camera, v.vel);
+      VisorRain.update(dt, wx.rain, v.speed, driving && (this.camMode === 'cockpit' || this.camMode === 'tcam' || this.camMode === 'nose'));
       this._weatherRadio(dt);
     }
     if (this.skids && driving && this.state !== 'paused') {

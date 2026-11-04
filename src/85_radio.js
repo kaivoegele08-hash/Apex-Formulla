@@ -61,7 +61,7 @@ const Radio = {
     const order = race.order || race.entries, n = me.timing.laps.length, rem = race.laps - n;
     const gapOf = (a, b) => { if (typeof race.gap !== 'function') return null; const g = race.gap(a, b); return g && g.s != null && g.s > 0 ? g.s : null; };
     // Position verändert (erst melden, wenn sie 2 s hält)
-    if (me.pos !== st.pos) { st.posT += step; if (st.posT > 2) { const up = me.pos < st.pos; this.say(up ? (me.pos === 1 ? 'Du führst das Rennen! Sauber bleiben.' : `Stark, P${me.pos}!`) : `P${me.pos}. Dranbleiben, das holen wir zurück.`, 1); st.pos = me.pos; st.posT = 0; } }
+    if (me.pos !== st.pos) { st.posT += step; if (st.posT > 2) { const up = me.pos < st.pos; if (up) AudioSys.cheer(me.pos <= 3 ? 0.9 : 0.55); this.say(up ? (me.pos === 1 ? 'Du führst das Rennen! Sauber bleiben.' : `Stark, P${me.pos}!`) : `P${me.pos}. Dranbleiben, das holen wir zurück.`, 1); st.pos = me.pos; st.posT = 0; } }
     else st.posT = 0;
     // Rundenmeldung: Position und Abstände
     if (n > st.laps) {
@@ -91,7 +91,7 @@ const Radio = {
   },
   /** Ereignisse aus Rennen und Wetter */
   init() {
-    Events.on('race:start', () => { this.reset(); this.say('Grün! Guter Start, sauber durch die erste Kurve.', 1); });
+    Events.on('race:start', () => { AudioSys.cheer(1); this.reset(); this.say('Grün! Guter Start, sauber durch die erste Kurve.', 1); });
     Events.on('race:damage', (parts, sum) => {
       const v = Game.vehicle, H = v && v.health;
       const box = H && (H.fw < 0.6 || H.rw < 0.55 || H.susp.some(x => x < 0.6));
@@ -108,6 +108,7 @@ const Radio = {
     Events.on('race:pitdone', (e) => { if (e && e.player) this.say('Guter Stopp. Reifen erst aufwärmen.', 1); });
     Events.on('race:finished', (e) => {
       if (!e || !e.player) return;
+      AudioSys.cheer(1);
       const p = e.pos || (Game.race && Game.race.player && Game.race.player.pos) || 0;
       this.say(`Zielflagge! P${p}. ${p === 1 ? 'Wir haben gewonnen! Unglaublich!' : p <= 3 ? 'Podium! Klasse gefahren.' : p <= 10 ? 'Punkte! Gute Arbeit.' : 'Danke dir, wir schauen uns das an.'}`, 2);
     });

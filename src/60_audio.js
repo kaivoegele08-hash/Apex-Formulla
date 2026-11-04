@@ -120,6 +120,8 @@ const AudioSys = {
     const g = c.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.005); g.gain.setValueAtTime(gain, t + dur); g.gain.linearRampToValueAtTime(0, t + dur + 0.02);
     o.connect(f); f.connect(g); g.connect(this.bus[bus]); o.start(t); o.stop(t + dur + 0.05);
   },
+  /** Jubel der Zuschauer (0…1), klingt in ≈ 2 s ab */
+  cheer(k = 1) { this.cheerV = Math.max(this.cheerV || 0, k); },
   radio() { this._burst(this.bus.radio, { dur: 0.12, freq: 2200, q: 0.8, gain: 0.18 }); setTimeout(() => this.beep(1250, 0.07, 0.15), 60); },
   uiClick() { this.beep(1800, 0.018, 0.05, 'effects'); },
 };
@@ -382,8 +384,9 @@ class FxVoices {
     this.scrape.g.gain.setTargetAtTime(car.scrapeIntensity * 0.28, t, 0.01);
     this.road.g.gain.setTargetAtTime(smoothstep(0, 60, spd) * (0.12 + car.surfVib * 0.25), t, 0.05);
     // Umgebung
-    const crowd = opts.crowd || 0;
-    this.crowd.g.gain.setTargetAtTime(0.03 + crowd * 0.12, t, 0.5); this.crowdLfoG.gain.setTargetAtTime(0.02 + crowd * 0.04, t, 0.5);
+    const crowd = opts.crowd || 0, ch = AudioSys.cheerV || 0;
+    AudioSys.cheerV = ch * Math.exp(-(dt || 0.016) / 2.2);
+    this.crowd.g.gain.setTargetAtTime(0.03 + crowd * 0.12 + ch * (0.05 + crowd * 0.35), t, ch > 0.05 ? 0.25 : 0.5); this.crowdLfoG.gain.setTargetAtTime(0.02 + crowd * 0.04, t, 0.5);
     this.birds.g.gain.setTargetAtTime(0.004 * (1 - smoothstep(0, 40, spd)) * (1 - (opts.rain || 0)), t, 0.5);
     this.rainN.g.gain.setTargetAtTime((opts.rain || 0) * (0.06 + 0.05 * (1 - inter)), t, 0.4);
     this.hiss.g.gain.setTargetAtTime((car.water || 0) * smoothstep(5, 60, spd) * 0.07, t, 0.1);
