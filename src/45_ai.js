@@ -17,7 +17,7 @@ const AI_LIMITS = {
 const AI_LIMITS_DEFAULT = Object.assign({}, AI_LIMITS);   // Standardauto (Epoche 2026)
 
 /** Schalter für Verhaltensweisen (Tests/Feinabstimmung) */
-const AI_TUNE = { brakeMod: true, draft: true, defend: true, door: true, lateBrake: true, edgeYield: false, startCare: true, dirtyAir: true, minCurv: true };   // edgeYield: im Test (36 Starts) schlechter
+const AI_TUNE = { brakeGain: 0.23, latMaxK: 1, brakeMod: true, draft: true, defend: true, door: true, lateBrake: true, edgeYield: false, startCare: true, dirtyAir: true, minCurv: true };   // edgeYield: im Test (36 Starts) schlechter
 
 class RacingLine {
   /** margin = Abstand der Fahrzeugmitte zur weißen Linie (m) */
@@ -96,21 +96,23 @@ class RacingLine {
     const key = Math.round(grip * 1000);
     if (this.profiles.has(key)) return this.profiles.get(key);
     const N = this.N, K = this.K, DS = this.DS, L = AI_LIMITS, g = G0;
-    const latA = (v) => Math.min(L.lat0 + L.latAero * v * v, L.latMax) * g * grip;
+    // gelernte Kurvenfaktoren (je Strecke und Epoche): Querhaftung je Punkt
+    const GM = this.gripMap || (typeof gripMapFor === 'function' ? gripMapFor(this.track, this) : null);
+    const latA = (v, j) => Math.min(L.lat0 + L.latAero * v * v, L.latMax * (AI_TUNE.latMaxK || 1)) * g * grip * (GM && j !== undefined ? GM[j] : 1);
     const brkA = (v) => Math.min(L.brk0 + L.brkAero * v * v, L.brkMax) * g * grip;
     const v = new Float32Array(N), vTop = 96;
     for (let j = 0; j < N; j++) {
       const k = Math.abs(K[j]);
       // v² · k = latA(v) – Fixpunktiteration
-      let x = vTop; for (let it = 0; it < 12; it++) x = k < 1e-5 ? vTop : Math.min(vTop, Math.sqrt(latA(x) / k));
+      let x = vTop; for (let it = 0; it < 12; it++) x = k < 1e-5 ? vTop : Math.min(vTop, Math.sqrt(latA(x, j) / k));
       v[j] = x;
     }
-    const ell = (vv, k, aMax) => { const al = vv * vv * Math.abs(k), am = latA(vv); return aMax * Math.sqrt(Math.max(0, 1 - (al / am) ** 2)); };
+    const ell = (vv, k, aMax, j) => { const al = vv * vv * Math.abs(k), am = latA(vv, j); return aMax * Math.sqrt(Math.max(0, 1 - (al / am) ** 2)); };
     // rückwärts: Bremsen (Abtrieb + Luftwiderstand, Reibungsellipse) → Höchsttempo für die Regelung
     for (let pass = 0; pass < 2; pass++) {
       for (let q = 2 * N; q > 0; q--) {
         const j = q % N, jp = (j - 1 + N) % N, vv = v[j];
-        const b = Math.max(1, ell(vv, K[jp], brkA(vv)) + L.drag * vv * vv * 0.5);
+        const b = Math.max(1, ell(vv, K[jp], brkA(vv), jp) + L.drag * vv * vv * 0.5);
         v[jp] = Math.min(v[jp], Math.sqrt(vv * vv + 2 * b * DS[jp]));
       }
     }
@@ -120,7 +122,7 @@ class RacingLine {
       for (let q = 0; q < 2 * N; q++) {
         const j = q % N, jn = (j + 1) % N, vv = pred[j];
         const aPow = Math.min(1.55 * g, L.power / (L.mass * Math.max(vv, 8))) - L.drag * vv * vv;
-        const a = Math.max(0.05, Math.min(aPow, ell(vv, K[j], 1.55 * g * grip)));
+        const a = Math.max(0.05, Math.min(aPow, ell(vv, K[j], 1.55 * g * grip, j)));
         pred[jn] = Math.min(pred[jn], Math.sqrt(vv * vv + 2 * a * DS[j]));
       }
     }
@@ -351,7 +353,7 @@ class AIDriver {
     if (slip > 0.12) thrT *= clamp(1 - (slip - 0.12) * 5, 0, 1);
     this.thr += clamp(thrT - this.thr, -h * 30, h * 9);
     inp.throttle = this.thr;
-    inp.brake = err < -0.6 ? clamp(-err * 0.23, 0, 1) : 0;
+    inp.brake = err < -0.6 ? clamp(-err * (AI_TUNE.brakeGain || 0.23), 0, 1) : 0;
     // Bremse dosieren: ABS kennt nur Längsschlupf – beim Anbremsen in die Kurve (Kombischlupf) Druck lösen,
     // sonst blockiert das Heck (v. a. Autos ohne Abtrieb, 1990) und das Auto dreht sich
     if (AI_TUNE.brakeMod && inp.brake > 0) { const sb = Math.max(v.wheels[0].sComb, v.wheels[1].sComb, rs * 1.15); if (sb > 1.3) inp.brake *= clamp(2.3 - sb, 0.3, 1); }

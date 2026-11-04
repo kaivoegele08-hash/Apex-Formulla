@@ -40,7 +40,7 @@ function refLapTime(track, line, water = 0) {
  * Verhältnis echte KI-Runde / Profil-Rundenzeit (weiche Reifen, Fähigkeit 1). Für das Standardauto
  * aus den Streckendaten, sonst (andere Epoche, Mod-Strecke) einmal simuliert (≈ 1 s) und gespeichert.
  */
-const LAPCAL_V = 2;   // 2: neue Ideallinie (Krümmungsminimierung) → neu kalibrieren
+const LAPCAL_V = 3;   // 2: neue Ideallinie (Krümmungsminimierung) → neu kalibrieren
 function lapFactor(track, line) {
   const key = ACTIVE_ERA + '|' + track.id, all = Save.get('lapCal', {});
   if (all[key] && all[key].v === LAPCAL_V) return all[key].f;

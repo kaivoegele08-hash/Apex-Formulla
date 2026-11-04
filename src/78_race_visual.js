@@ -73,11 +73,11 @@ function buildTvSpots(track, blocked = []) {
 /**
  * Fahrhilfe „Ideallinie“: Band auf der Fahrbahn entlang der Ideallinie, pro Bild nach dem
  * aktuellen Tempo eingefärbt – grün = beschleunigen, gelb = Gas weg, rot = bremsen.
- * Grundlage ist das Tempoprofil (Bremsweg-Kurve) mit leicht vorsichtigem Griff.
+ * Grundlage ist dasselbe Tempoprofil wie bei der KI (inkl. gelernter Kurvenfaktoren je Strecke/Epoche).
  */
 class IdealLineVisual {
-  constructor(track, line, grip = 0.96) {
-    this.track = track; this.line = line; this.prof = line.profile(grip);
+  constructor(track, line, grip = 1) {
+    this.track = track; this.line = line; this.grip = grip; this.prof = line.profile(grip);
     const T = track, N = T.N, W = 0.32;
     const pos = new Float32Array(N * 2 * 3), col = new Float32Array(N * 2 * 4), idx = [];
     for (let j = 0; j < N; j++) {
@@ -102,6 +102,8 @@ class IdealLineVisual {
   update(v, mode) {
     this.mesh.visible = mode !== 'off';
     if (mode === 'off' || !v || v.trackIdx < 0) return;
+    // Profil bei Epochenwechsel neu holen (gelernte Kurvenfaktoren hängen von der Epoche ab)
+    if (!this.line.profiles.size || this.prof !== this.line.profile(this.grip)) this.prof = this.line.profile(this.grip);
     const T = this.track, N = T.N, c = this.col.array, P = this.prof;
     const spd = Math.max(0, v.vLong), j0 = v.trackIdx, ahead = Math.round(520 / T.ds), behind = 6;
     // alten Bereich ausblenden
@@ -109,8 +111,8 @@ class IdealLineVisual {
     for (let q = -behind; q <= ahead; q++) {
       const k = (j0 + q + N) % N, vp = P[k];
       let r, g, b;
-      if (spd > vp * 1.03) { r = 1.0; g = 0.12; b = 0.08; }            // bremsen
-      else if (spd > vp * 0.93) { r = 1.0; g = 0.82; b = 0.05; }       // Gas weg / rollen
+      if (spd > vp * 1.02) { r = 1.0; g = 0.12; b = 0.08; }            // bremsen (schneller als das Limit an dieser Stelle)
+      else if (spd > vp * 0.97) { r = 1.0; g = 0.82; b = 0.05; }       // am Limit: Gas weg / rollen
       else { r = 0.15; g = 0.95; b = 0.35; }                            // beschleunigen
       let a = q < 0 ? 0.25 : 0.85 * (1 - smoothstep(ahead * 0.55, ahead, q));
       if (mode === 'brake' && g > 0.9) a = 0;                           // nur Brems- und Rollzonen
