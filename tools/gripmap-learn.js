@@ -20,22 +20,27 @@ for (let j = 0; j < N; j++) {
 }
 const inC = new Int16Array(N).fill(-1);
 corners.forEach((c, i) => { for (let k = c.a; k !== (c.b + 1) % N; k = (k + 1) % N) inC[k] = i; });
+// Bewertung: eine fehlerfreie Runde (Rundenzeit) + zwei Runden mit Fahrfehlern (Konstanz 85 %) – Abflüge zählen aus allen
 function evaluate(f) {
   GRIP_MAPS_OVERRIDE[key] = corners.map((c, i) => [+c.sa.toFixed(1), +c.sb.toFixed(1), +f[i].toFixed(3)]);
   line.profiles.clear(); line._gm = null;
-  const v = new Vehicle(CAR_SPEC, {}); v.setCompound('medium', 85); v.placeOnTrack(T, L - 150, line.offsetAt(L - 150));
-  const ai = new AIDriver(v, line, { skill: 1, aggression: 0.5, consistency: 1, reaction: 0.2 }, 3), me = { vehicle: v, ai };
   const st = corners.map(() => ({ slip: 0, off: 0, reset: 0 }));
-  let laps = 0, ls = null, lap = null, last = v.trackS, t = 0, resets = 0;
-  for (let i = 0; i < 360 * 260 && lap === null; i++) {
+  const a = drive(st, 1, 1, 3), b = drive(st, 0.85, 2, 7);
+  return { lap: a.lap, st, resets: a.resets + b.resets, offT: st.reduce((x, s) => x + s.off, 0) };
+}
+function drive(st, consistency, nLaps, seed) {
+  const v = new Vehicle(CAR_SPEC, {}); v.setCompound('medium', 85); v.placeOnTrack(T, L - 150, line.offsetAt(L - 150));
+  const ai = new AIDriver(v, line, { skill: 1, aggression: 0.5, consistency, reaction: 0.2 }, seed), me = { vehicle: v, ai };
+  let laps = 0, ls = null, lap = null, done = 0, last = v.trackS, t = 0, resets = 0;
+  for (let i = 0; i < 360 * 130 * (nLaps + 1) && done < nLaps; i++) {
     ai.control(h, { cars: [me], me, state: 'free', time: t }); v.step(h); t += h; v.events.length = 0;
-    if (last > L - 60 && v.trackS < 60) { if (ls !== null) lap = t - ls; ls = t; laps++; } last = v.trackS;
+    if (last > L - 60 && v.trackS < 60) { if (ls !== null) { lap = lap === null ? t - ls : Math.min(lap, t - ls); done++; } ls = t; laps++; } last = v.trackS;
     if (ls === null) continue;
     const c = inC[v.trackIdx];
     if (c >= 0) { const S = st[c]; S.slip = Math.max(S.slip, ...v.wheels.map(w => w.sComb)); if (v.offTrackWheels >= 3) S.off += h; }
     if (ai.needsReset) { resets++; if (c >= 0) st[c].reset++; else { let best = 0, bd = 1e9; corners.forEach((cc, k) => { const d = ((v.trackIdx - cc.b) % N + N) % N; if (d < bd) { bd = d; best = k; } }); st[best].reset++; } v.placeOnTrack(T, v.trackS, line.offsetAt(v.trackS)); ai.resetAfterRecovery(); }
   }
-  return { lap: lap ?? 999, st, resets, offT: st.reduce((a, s) => a + s.off, 0) };
+  return { lap: lap ?? 999, resets };
 }
 let f = corners.map(() => 1), bestF = f.slice(), first = evaluate(f), best = first, hist = [first.lap.toFixed(2) + (first.resets ? 'R' + first.resets : '')];
 const cap = corners.map(() => 1.35), lastClean = corners.map(() => 1);
@@ -56,5 +61,6 @@ for (let it = 0; it < ITERS; it++) {
     return x;
   });
 }
-const list = corners.map((c, i) => [+c.sa.toFixed(1), +c.sb.toFixed(1), +bestF[i].toFixed(3)]).filter(e => Math.abs(e[2] - 1) > 0.004);
+// alle Kurven ausgeben (auch Faktor 1): überlappende Bereiche werden in dieser Reihenfolge überblendet
+const list = corners.map((c, i) => [+c.sa.toFixed(1), +c.sb.toFixed(1), +bestF[i].toFixed(3)]);
 console.log(JSON.stringify({ key, base: +first.lap.toFixed(3), baseResets: first.resets, best: +best.lap.toFixed(3), resets: best.resets, offT: +best.offT.toFixed(2), hist, list }));
