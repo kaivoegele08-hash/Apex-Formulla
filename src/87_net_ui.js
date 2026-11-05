@@ -120,6 +120,7 @@ Object.assign(UI, {
         tbl);
       if (isHost) {
         const acts = h('div.actions');
+        if (CS.phase === 'offseason') card.append(h('p', { style: { fontSize: '13px', margin: '6px 0 2px' } }, 'Fahrzeug der nächsten Saison:'), chips(ERA_ORDER.map(id => ({ value: id, label: ERAS[id].name })), Game.coop.nextEra || Game.coop.era, v => { Game.coop.nextEra = v === Game.coop.era ? null : v; Game.saveCoop(); this.show('lobby', { noHistory: true }); }));
         if (CS.phase === 'offseason') acts.append(btn('Nächste Saison starten', () => { Coop.nextSeason(Game.coop); Game.saveCoop(); S.setCoop(Game.coopSlot); this.toast('Neue Saison – Kalender steht.'); }, 'primary small', '▶'));
         acts.append(btn('Koop beenden (bleibt gespeichert)', () => { S.setCoop(0); }, 'ghost small'));
         card.append(acts);

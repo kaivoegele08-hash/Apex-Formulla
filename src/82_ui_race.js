@@ -232,6 +232,8 @@ Object.assign(UI, {
       h('div.scroll', { style: { flex: '1' } }, tbl),
       Net.active
         ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn(Net.session.role === 'host' ? 'Zurück zur Lobby' : 'Zur Lobby', () => Game.netBackToLobby(), 'primary', '▶'), btn('Mehrspieler verlassen', () => Game.netLeave(), 'ghost'))
+        : Game.licenseRound && Game.licEvent
+        ? h('div.actions', btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Wertung: iRating & Safety Rating', () => { const sum = Game.finishLicenseRace(); Game.toMenu(); this.show('license', { summary: sum }); }, 'primary', '▶'))
         : Game.careerRound && Game.career
         ? h('div.actions', btn('Siegerehrung', () => Game.openPodium()), btn('Wiederholung', () => Game.openReplay('results')), btn('Telemetrie', () => this.show('telemetry')), btn('Weiter zur Karriere', () => { const sum = Game.finishCareerRace(); Game.toMenu(); this.show('career', { summary: sum, tab: 'news' }); }, 'primary', '▶'))
         : Game.seasonRound && Game.season
@@ -350,7 +352,7 @@ Object.assign(UI, {
       h('div.scroll', { style: { flex: '1' } }, tbl),
       Net.active ? h('div.actions', Net.session.role === 'host' ? btn('Rennen für alle starten', () => Net.session.raceFromQuali(), 'primary', '▶') : h('p', { style: { color: '#ffb02e', fontWeight: 800 } }, 'Warte auf den Host – das Rennen startet für alle gleichzeitig …'),
         Net.session.role === 'host' ? h('p', { style: { color: '#9aa3ad' } }, `Fertig: ${Net.session.qDone.size} von ${Net.session.players.length - 1} Mitspielern`) : null, btn('Mehrspieler verlassen', () => Game.netLeave(), 'ghost')) :
-      h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Wiederholung', () => Game.openReplay('results')), btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
+      h('div.actions', btn(`Zum Rennen (${P.laps} ${P.laps === 1 ? 'Runde' : 'Runden'})`, () => Game.startRace(), 'primary', '▶'), btn('Wiederholung', () => Game.openReplay('results')), Game.licenseRound ? null : btn('Qualifying wiederholen', () => Game.startQualifying()), btn('Hauptmenü', () => Game.toMenu(), 'ghost')),
     );
   },
 
@@ -416,9 +418,9 @@ Object.assign(UI, {
   /** Flaggen-Banner: green kurz anzeigen, dann ausblenden */
   setFlag(f, vscMax) {
     const el = $('hudFlag');
-    const names = { yellow: 'Gelbe Flagge', sc: 'Safety Car', vsc: 'Virtuelles Safety Car', vscEnd: 'VSC endet', blue: 'Blaue Flagge', green: 'Grüne Flagge', chequered: 'Zielflagge' };
-    const sub = { yellow: 'Nicht überholen – langsamer', sc: 'Nicht überholen – hinter dem Vordermann einreihen', blue: 'Schnelleres Auto überrunden lassen', vsc: vscMax ? `Höchstens ${Math.round(vscMax * 3.6)} km/h · nicht überholen` : 'Nicht überholen' };
-    const key = f + '|' + (f === 'vsc' && vscMax ? Math.round(vscMax * 3.6 / 5) : '');
+    const names = { yellow: 'Gelbe Flagge', sc: 'Safety Car', vsc: 'Virtuelles Safety Car', vscEnd: 'VSC endet', blue: 'Blaue Flagge', green: 'Grüne Flagge', chequered: 'Zielflagge', red: 'Rote Flagge' };
+    const sub = { yellow: 'Nicht überholen – langsamer', sc: 'Nicht überholen – hinter dem Vordermann einreihen', blue: 'Schnelleres Auto überrunden lassen', red: vscMax ? `Langsam fahren (höchstens ${Math.round(vscMax * 3.6)} km/h) · nicht überholen` : 'Rennen unterbrochen – anhalten', vsc: vscMax ? `Höchstens ${Math.round(vscMax * 3.6)} km/h · nicht überholen` : 'Nicht überholen' };
+    const key = f + '|' + ((f === 'vsc' || f === 'red') && vscMax ? Math.round(vscMax * 3.6 / 5) : '');
     if (this.hudCache.flag === key) return;
     const was = this.hudCache.flag; this.hudCache.flag = key;
     if (!f || (f === 'green' && (!was || was.startsWith('green')))) { el.classList.add('hidden'); return; }

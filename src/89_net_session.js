@@ -184,7 +184,7 @@ class NetHost {
       this.state = 'quali'; this.qTimes = new Map(); this.qDone = new Set();
       this.broadcast({ t: 'startQuali', settings: this.settings, grid: grid.map(g => ({ kind: g.kind, id: g.id ?? -1, name: g.name, team: g.team, number: g.number })) });
       this.broadcastLobby();
-      Game.netHost = this; Game.seasonRound = false; Game.careerRound = false; Game.pendingGrid = null;
+      Game.netHost = this; Game.seasonRound = false; Game.careerRound = false; Game.licenseRound = false; Game.pendingGrid = null;
       Game.startQualifying();
       return;
     }

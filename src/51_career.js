@@ -370,6 +370,9 @@ const Career = {
   /** Neue Saison nach der Vertragsentscheidung (offer = Element aus c.offers) */
   nextSeason(c, offer) {
     const rng = careerRng(c);
+    // Wechsel der Epoche/Klasse zur neuen Saison (im Saisonende-Bildschirm gewählt)
+    if (c.nextEra && ERAS[c.nextEra] && c.nextEra !== c.era) { this.post(c, 'press', 'Presse', `Neues Reglement: Ab ${c.year + 1} fährt das Feld mit ${eraOf(c.nextEra).title}.`); c.era = c.nextEra; applyEra(c.era); }
+    c.nextEra = null;
     if (offer && !offer.stay) this.sign(c, offer); else c.offers = [];
     c.seasonNo++; c.year++;
     this._fillSeats(c, rng, true);

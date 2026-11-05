@@ -4,6 +4,15 @@
 Fiktive Teams, Fahrer und Strecken. Lenkradunterstützung mit Kalibrierungsassistent und
 echtem Force Feedback (Logitech G920/G923 über WebHID).
 
+**Version 1.1**
+- **Lizenz-Rennen (offline)**: Rennligen wie online – Lizenzen R → D → C → B → A je Kategorie (Formel, GT) mit Safety Rating (0–4,99), iRating je Klasse (F4, F3, F2, 2026, GT, Klassik), Feldstärke (SOF) bestimmt das KI-Tempo. Sieben Serien mit Mindestlizenz und Wochenplan (12 Rennwochen, Strecke wechselt alle zwei Rennen). Vorfälle: neben der Strecke 1x, Dreher 2x, Mauer 2x, schwerer Kontakt 4x; Vorfall-Limit = Disqualifikation; Rennen verlassen = Ausfall. Aufstieg ab SR 3,0 nach 4 Rennen oder sofort ab 4,0, Abstieg unter 1,0
+- **Neue Rennklassen**: F4 (160 PS, ohne Abtrieb), F3 (380 PS, DRS), F2 (620 PS Turbo), GT-Sportwagen (geschlossen, ABS/TC) – eigene Physik, KI-Grenzen und Fahrerfelder; überall wählbar wie die Epochen
+- **Koop-Karriere im Mehrspieler**: gemeinsame Karriere mit Kalender, WM und Fahrermarkt; der Host speichert (3 Plätze), Mitspieler behalten ihren Sitz über ihren Freundescode; Gäste kommen ins Team des Hosts, sonst ins nächstbeste Team und verdrängen dort einen KI-Fahrer
+- **Klassenwechsel nach der Saison** (Karriere und Koop): neue Epoche/Klasse im Saisonende-Bildschirm wählen
+- **Rote Flagge**: bei Massenunfall (3 Wracks in 10 s) oder Starkregen – langsam fahren, Unterbrechung mit Reparatur und Reifenwechsel, Neustart hinter dem Safety Car
+- **Virtueller Rückspiegel** oben im HUD (Einstellungen → Fahrhilfen: Aus / nur Cockpit-Kameras / immer)
+- **Stärkere KI**: auch die niedrigste Stufe fährt deutlich schneller und konstanter
+
 **Version 1.0**
 - Läuft komplett offline: Three.js und PeerJS stecken in der HTML-Datei (nur der Online-Lobby-Vermittler braucht Internet)
 - Spielstände abgesichert: Versionierung mit Migration, drei Karriere-Speicherplätze mit Saisonende-Sicherung, Export/Import als Datei

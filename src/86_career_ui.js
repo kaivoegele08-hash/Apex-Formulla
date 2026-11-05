@@ -112,7 +112,12 @@ Object.assign(UI, {
         h('div.col', { style: { flex: '1 1 640px' } },
           h('h3', { style: { color: '#ff3b1f' } }, 'Deine Optionen für die nächste Saison'),
           h('div.row', { style: { alignItems: 'stretch', flexWrap: 'wrap' } }, c.offers.map(of => this._offerCard(c, of, () => this.confirm(of.stay ? `Bei ${Career.teamName(of.team)} bleiben?` : `Bei ${Career.teamName(of.team)} unterschreiben?`, () => { Career.nextSeason(c, of); Game.saveCareer(); this.show('career', { noHistory: true, tab: 'news' }); }), of.stay ? 'Bleiben' : 'Unterschreiben')))),
-        h('div.col', { style: { flex: '0 1 420px' } }, h('div.card', h('h3', 'Fahrermarkt & Nachrichten'), news.length ? news.map(p => h('p', { style: { fontSize: '13px' } }, p.text)) : h('p', 'Noch keine Meldungen.')))),
+        h('div.col', { style: { flex: '0 1 420px' } },
+          h('div.card', h('h3', 'Fahrzeug der nächsten Saison'),
+            h('p', { style: { fontSize: '13px', color: '#9aa3ad' } }, 'Epoche oder Klasse wechseln – Fahrer, Teams und Verträge bleiben, nur Auto und Fahrverhalten ändern sich.'),
+            chips(ERA_ORDER.map(id => ({ value: id, label: ERAS[id].name })), c.nextEra || c.era, v => { c.nextEra = v === c.era ? null : v; Game.saveCareer(); this.show('career', { noHistory: true }); }),
+            h('p', { style: { fontSize: '13px' } }, h('b', eraOf(c.nextEra || c.era).title), c.nextEra ? ' (Wechsel)' : ' (wie bisher)')),
+          h('div.card', h('h3', 'Fahrermarkt & Nachrichten'), news.length ? news.map(p => h('p', { style: { fontSize: '13px' } }, p.text)) : h('p', 'Noch keine Meldungen.')))),
     );
   },
 

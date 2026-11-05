@@ -5,7 +5,7 @@
 // ============================================================================
 
 const APP_NAME = 'Apex Formula';
-const APP_VERSION = '1.0.4';
+const APP_VERSION = '1.1.0';
 const PHYS_HZ = 360;                 // fester Physik-Takt
 const PHYS_DT = 1 / PHYS_HZ;
 const DEG = Math.PI / 180;
@@ -158,10 +158,10 @@ class EventBus {
   constructor() { this.map = new Map(); }
   on(type, fn) { if (!this.map.has(type)) this.map.set(type, new Set()); this.map.get(type).add(fn); return () => this.off(type, fn); }
   off(type, fn) { const s = this.map.get(type); if (s) s.delete(fn); }
-  emit(type, a, b, c) {
+  emit(type, a, b, c, d) {
     const s = this.map.get(type);
     if (!s) return;
-    for (const fn of s) { try { fn(a, b, c); } catch (err) { console.error('[Events]', type, err); } }
+    for (const fn of s) { try { fn(a, b, c, d); } catch (err) { console.error('[Events]', type, err); } }
   }
 }
 const Events = new EventBus();

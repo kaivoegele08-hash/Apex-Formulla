@@ -105,8 +105,41 @@ const Game = {
     Save.set('season', this.season);
   },
   endSeason() { this.season = null; this.seasonRound = false; Save.set('season', null); },
-  startSeasonRound() { if (!this.season || Season.done(this.season)) return; this.seasonRound = true; this.startEvent(); },
-  startQuickRace() { this.seasonRound = false; this.careerRound = false; this.startEvent(); },
+  startSeasonRound() { if (!this.season || Season.done(this.season)) return; this.seasonRound = true; this.licenseRound = false; this.startEvent(); },
+  startQuickRace() { this.seasonRound = false; this.careerRound = false; this.licenseRound = false; this.startEvent(); },
+  // ---------------------------------------------------------------------------
+  //  Lizenzmodus (offline): Serien, iRating, Safety Rating
+  // ---------------------------------------------------------------------------
+  get license() { if (!this._lic) this._lic = License.fix(Save.get('license', null)) || License.create(this.settings.game.playerName || 'Du'); return this._lic; },
+  saveLicense() { if (this._lic) Save.set('license', this._lic); },
+  resetLicense() { this._lic = License.create(this.settings.game.playerName || 'Du'); this.saveLicense(); },
+  startLicenseRace(sid) {
+    const p = this.license, s = License.series(sid); if (!s || !License.allowed(p, s)) return;
+    const W = License.week(p, s); this._useEra(License.eraFor(s, W.week, W.season));
+    this.licEvent = License.makeEvent(p, sid);
+    this.seasonRound = false; this.careerRound = false; this.licenseRound = true; this.pendingGrid = null;
+    this.startEvent();
+  },
+  /** Rennen in die Lizenzwertung übernehmen (einmal je Rennen) */
+  finishLicenseRace() {
+    const race = this.race, ev = this.licEvent;
+    if (!race || !ev || !this.licenseRound || race.licScored) return null;
+    race.licScored = true;
+    const me = race.player, I = me.inc || { n: 0, list: [] };
+    const sum = License.afterRace(this.license, ev, race.classification(), I.n, me.timing.laps.length, License.cornersOf(race.track), race.track.name);
+    sum.incList = I.list.filter(x => x.pts > 0).slice(0, 25);
+    this.license.pending = null; this.saveLicense();
+    this.licenseRound = false; this.licEvent = null; this.pendingGrid = null;
+    return sum;
+  },
+  /** Rennen verlassen, ohne es zu beenden → Wertung als Ausfall (wie bei Online-Ligen) */
+  scoreLicenseAbort() {
+    const p = this.license, ev = p.pending; if (!ev) return null;
+    p.pending = null;
+    const cls = ev.opp.map(o => ({ e: {}, name: o.name })).concat([{ e: { player: true }, name: 'Du', retired: true }]);
+    const sum = License.afterRace(p, ev, cls, ev.inc || 0, ev.laps0 || 0, ev.cpl || 1, TRACKS[ev.track] ? TRACKS[ev.track].name : ev.track);
+    sum.aborted = true; this.saveLicense(); return sum;
+  },
   // ---------------------------------------------------------------------------
   //  Karriere
   // ---------------------------------------------------------------------------
@@ -132,7 +165,7 @@ const Game = {
   closeCareer() { this.career = null; this.careerRound = false; },
   startCareerRound() {
     const c = this.career; if (!c || c.phase !== 'season') return;
-    this.seasonRound = false; this.careerRound = true; this.careerLog = { contacts: [], passes: [], pole: false };
+    this.seasonRound = false; this.careerRound = true; this.licenseRound = false; this.careerLog = { contacts: [], passes: [], pole: false };
     this.startEvent();
   },
   /** Ergebnis in die Karriere übernehmen (einmal je Rennen) → Rückgabe: Zusammenfassung für die Anzeige */
@@ -306,6 +339,7 @@ const Game = {
     const R = this.settings.race, G = this.settings.game, C = this.careerRound && this.career ? this.career : null;
     const NH = this.netHost;
     if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: s.coop && this.coop ? this.coop.settings.strength : 1, weather: s.weatherType || 'dry', quali: s.quali > 0, qualiMin: s.quali || 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
+    if (this.licenseRound && this.licEvent) { const ev = this.licEvent; return { era: ev.era, trackId: TRACKS[ev.track] ? ev.track : 'ringpark', laps: ev.laps, opponents: ev.opp.length, strength: ev.strength, weather: ev.weather, quali: ev.quali > 0, qualiMin: ev.quali || 0, team: G.team, name: G.playerName || 'Du', number: G.number, license: true, raceOverride: { damage: 'full', safetyCar: true, mandatory: ev.mandatory ? 'on' : 'off' } }; }
     const S = C ? C.season : this.season && this.seasonRound ? this.season : null;
     if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
     const trackId = TRACKS[S.tracks[S.round]] ? S.tracks[S.round] : 'ringpark';
@@ -315,6 +349,11 @@ const Game = {
   _field(P) {
     const R = this.settings.race;
     if (P.net) { const co = this.netHost.settings.coop && this.coop; return this.netHost.grid.map(g => g.kind === 'host' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, player: true, trackGrip: co ? Career.grip(co, g.team) : undefined } : g.kind === 'remote' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, remote: true, netId: g.id } : { driver: g.driver, team: g.team, number: g.number, trackGrip: co && g.driver ? g.driver.trackGrip : undefined }); }
+    if (P.license) {   // Lizenzrennen: Gegner mit iRating, Startaufstellung nach iRating (ohne Qualifying)
+      const ev = this.licEvent, rows = ev.opp.map(o => ({ driver: o, team: o.team, number: o.num === P.number ? (100 - o.num || 98) : o.num, ir: o.ir }));
+      rows.push({ driver: { name: P.name, nat: '', num: P.number, team: P.team, rating: 1 }, team: P.team, number: P.number, player: true, ir: ev.myIR });
+      return rows.sort((a, b) => b.ir - a.ir);
+    }
     if (P.career) { const c = this.career, f = buildField({ playerTeam: c.team, playerName: c.me.name, playerNumber: c.me.number, drivers: Career.raceDrivers(c) }); f.find(e => e.player).trackGrip = Career.grip(c, c.team); return f; }
     return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
   /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
@@ -443,6 +482,13 @@ const Game = {
   /** Ereignisse des Rennens → HUD, Funk, Ergebnis */
   _raceEvents() {
     Events.on('race:lights', (n) => { UI.setLights(n); if (n > 0) AudioSys.beep(n === 5 ? 880 : 660, 0.12, 0.2, 'effects'); });
+    Events.on('race:start', () => { if (this.licenseRound && this.licEvent && this.race) { this.licEvent.cpl = License.cornersOf(this.race.track); this.license.pending = this.licEvent; this.saveLicense(); } });
+    Events.on('race:incident', (e, add, kind, n) => {
+      if (!this.licenseRound || !this.licEvent) return;
+      UI.hudMsg(`${add}x ${kind} · ${n}x gesamt`, 1800);
+      const P = this.license.pending; if (P) { P.inc = n; P.laps0 = e.timing.laps.length; }
+      if (n >= this.licEvent.incLimit && !e.retired && this.race) { e.dq = true; this.race._retire(e, 'Disqualifiziert – Vorfall-Limit'); }
+    });
     Events.on('race:start', () => { UI.hudMsg('Los!', 1400); AudioSys.beep(1320, 0.25, 0.25, 'effects'); if (this.raceRec) this.raceRec.begin(1); });
     Events.on('race:msg', (text, entry, kind) => { if (kind === 'win' || kind === 'out' || kind === 'fastest' || kind === 'sc' || kind === 'green' || (entry && entry.player && kind !== 'pit')) UI.hudMsg(text, 3200); });
     Events.on('race:limits', (n, text) => { UI.hudMsg(n ? `Track Limits – ${text}` : text, 2600); AudioSys.radio(); });
@@ -450,6 +496,7 @@ const Game = {
     Events.on('race:sector', (d) => { this.raceSectors[d.k] = !this.race.player.timing.valid ? 'invalid' : d.overall ? 'purple' : d.pb ? 'green' : 'yellow'; });
     Events.on('race:contact', (sp) => { if (sp > 6) UI.hudMsg('Kontakt!', 900); });
     Events.on('race:flag', (f) => { UI.setFlag(f); if (f !== 'green' && f !== 'chequered') AudioSys.radio(); });
+    Events.on('race:red', (phase, why) => { AudioSys.radio(); UI.hudMsg(phase === 'show' ? `ROTE FLAGGE (${why}) – langsam fahren, nicht überholen` : phase === 'stop' ? 'Rennen unterbrochen – Reparatur und frische Reifen' : 'Neustart hinter dem Safety Car', 4000); });
     Events.on('race:sc', (kind, phase) => { if (phase === 'deploy') AudioSys.beep(700, 0.3, 0.25, 'effects'); });
     Events.on('race:pitentry', () => UI.hudMsg('Boxengasse – Autopilot übernimmt', 2200));
     Events.on('race:pitmissed', () => UI.hudMsg('Boxeneinfahrt verpasst – nächste Runde', 2400));
@@ -528,6 +575,8 @@ const Game = {
     AudioSys.setActive(true);
   },
   toMenu() {
+    Render.renderMirror(null, false);
+    if (this.licenseRound) { this.licenseRound = false; this.licEvent = null; }   // abgebrochenes Lizenzrennen: Wertung als Ausfall beim nächsten Öffnen
     this.state = 'menu'; this.loop.paused = false; this.netPaused = false;
     this.netView = null;
     Input.gameActive = false;
@@ -900,6 +949,8 @@ const Game = {
       this._updateVisuals(dt, alpha);
       FFB.update(dt, this.vehicle, this.state === 'driving' && !(this.race && (this.race.player.ai || this.race.player.pitPilot)));
       Render.render();
+      const mm = this.settings.game.mirror || 'cockpit', cockpitCam = this.camMode === 'cockpit' || this.camMode === 'tcam' || this.camMode === 'nose';
+      Render.renderMirror(this.carVis && this.carVis.root, this.state === 'driving' && this.hudOn && !this.overlay && (mm === 'always' || (mm === 'cockpit' && cockpitCam)) && !(this.race && this.race.player && this.race.player.finished));
       this._autoQuality(dt);
     }
     if (this.state !== 'driving' && this.state !== 'paused' && this.state !== 'finished') FFB.update(dt, null, false);   // Menü: keine Kraft (außer Testkraft)
@@ -1071,7 +1122,7 @@ const Game = {
 function nextFrame() { return new Promise(r => requestAnimationFrame(() => r())); }
 
 // Debug-Zugriff für die Browser-Konsole (z. B. ApexDebug.vehicle.rpm)
-window.ApexDebug = { ModFolder, applyMods, applyEra, Net, NetHost, NetClient, NetProfile, NetPresence, AIDriverRef: AIDriver, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, CarDebris, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
+window.ApexDebug = { License, Coop, ModFolder, applyMods, applyEra, Net, NetHost, NetClient, NetProfile, NetPresence, AIDriverRef: AIDriver, get game() { return Game; }, get vehicle() { return Game.vehicle; }, get input() { return Input; }, FFB, AIDriver, Damage, CarDebris, UI, events: Events, Render, AudioSys, TrackModel, Vehicle };
 
 Game.boot().catch(err => {
   console.error(err);

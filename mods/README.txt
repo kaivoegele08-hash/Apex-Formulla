@@ -119,7 +119,7 @@ Ein Team sollte zwei Fahrer haben (siehe drivers), sonst fährt es mit weniger A
     era: 'e2026' }       // optional: Epoche(n), z. B. 'e1990' oder ['e2017','e2020']
 
 Ohne era gilt der Fahrer für das Standardauto (2026). Epochen-IDs:
-  e1990 e2000 e2010 e2014 e2017 e2020 e2022 e2026 (und IDs aus Mods)
+  e1990 e2000 e2010 e2014 e2017 e2020 e2022 e2026, Klassen f4 f3 f2 gt3 (und IDs aus Mods)
 Das Team muss existieren (eingebautes Team oder eines aus einer Mod).
 Eingebaute Teams: aurora, nordlicht, kestrel, atlas, solaris, brennhagen,
 monteverde, halcyon, ironvale, tempest

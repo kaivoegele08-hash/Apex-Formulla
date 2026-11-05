@@ -540,6 +540,40 @@ const Render = {
     this.postRender.scene = this.scene; this.postRender.camera = this.camera;
     return this.composer;
   },
+  /**
+   * Virtueller Rückspiegel oben im HUD: Kamera hinter dem Kopf des Fahrers blickt nach hinten, Bild in ein kleines
+   * Renderziel, dann seitenverkehrt (wie ein Spiegel) in einen Streifen oben in der Bildmitte.
+   */
+  renderMirror(root, on) {
+    let F = this.mirrorFrame;
+    if (!on || !root || !this.scene) { if (F) F.style.display = 'none'; return; }
+    const r = this.renderer, W = this.width, H = this.height, mw = Math.round(clamp(W * 0.3, 240, 560)), mh = Math.round(mw / 4.4), top = 6;
+    const pr = Math.min(1.5, r.getPixelRatio()), rw = Math.round(mw * pr), rh = Math.round(mh * pr);
+    if (!this.mirror) {
+      const rt = new THREE.WebGLRenderTarget(rw, rh, { type: THREE.HalfFloatType, samples: 0 });
+      const cam = new THREE.PerspectiveCamera(32, mw / mh, 2.9, 900);
+      const tex = rt.texture; tex.wrapS = THREE.RepeatWrapping; tex.repeat.x = -1; tex.offset.x = 1;   // spiegeln
+      const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: tex, depthTest: false, depthWrite: false }));
+      const qs = new THREE.Scene(); qs.add(quad);
+      this.mirror = { rt, cam, qs, qc: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), a: new THREE.Vector3(), b: new THREE.Vector3() };
+    }
+    const M = this.mirror;
+    if (M.rt.width !== rw || M.rt.height !== rh) M.rt.setSize(rw, rh);
+    M.cam.aspect = mw / mh; M.cam.updateProjectionMatrix();
+    root.updateMatrixWorld();
+    M.cam.position.copy(root.localToWorld(M.a.set(0, 0.95, -0.15)));
+    M.cam.lookAt(root.localToWorld(M.b.set(0, 0.55, 40)));
+    const prevT = r.getRenderTarget(), shadowAuto = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    r.setRenderTarget(M.rt); r.clear(); r.render(this.scene, M.cam); r.setRenderTarget(prevT);
+    r.shadowMap.autoUpdate = shadowAuto;
+    const vp = new THREE.Vector4(); r.getViewport(vp);
+    r.setScissorTest(true); r.setScissor((W - mw) / 2, H - mh - top, mw, mh); r.setViewport((W - mw) / 2, H - mh - top, mw, mh);
+    const ac = r.autoClear; r.autoClear = false; r.render(M.qs, M.qc); r.autoClear = ac;
+    r.setScissorTest(false); r.setViewport(vp);
+    if (!F) { F = this.mirrorFrame = document.createElement('div'); Object.assign(F.style, { position: 'fixed', left: '50%', transform: 'translateX(-50%)', border: '2px solid #0b0d12', borderRadius: '6px', boxShadow: '0 0 0 1px #3a4250, 0 3px 10px rgba(0,0,0,.5)', pointerEvents: 'none', zIndex: 5 }); document.body.append(F); }
+    Object.assign(F.style, { display: 'block', top: top - 2 + 'px', width: mw + 'px', height: mh + 'px' });
+  },
   render(scene = this.scene, camera = this.camera) {
     const c = scene === this.scene && camera === this.camera && this.scene ? this._post() : null;
     if (c) c.render(); else this.renderer.render(scene, camera);

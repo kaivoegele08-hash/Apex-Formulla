@@ -61,7 +61,9 @@ const Coop = {
     if (!c) return null;
     const S = c.season, next = S && !Season.done(S) ? S.tracks[S.round] : null;
     const humans = [{ name: c.me.name, team: c.team, number: c.me.number, host: true }].concat(Object.values(c.coop.humans).map(h => ({ name: h.name, team: h.team, number: h.number })));
-    const table = S ? Season.driverTable(S).slice(0, 20).map((d, i) => ({ pos: i + 1, name: d.name, team: d.team, pts: d.pts, wins: d.wins, human: humans.some(x => x.name === d.name) || d.player })) : [];
+    let rows = S ? Season.driverTable(S) : [];
+    if (!rows.length) rows = humans.map(x => ({ name: x.name, team: x.team, pts: 0, wins: 0, player: true })).concat(this.aiDrivers(c, humans.map(x => x.team)).sort((a, b) => b.rating - a.rating).map(d => ({ name: d.name, team: d.team, pts: 0, wins: 0 })));
+    const table = rows.slice(0, 20).map((d, i) => ({ pos: i + 1, name: d.name, team: d.team, pts: d.pts, wins: d.wins, human: humans.some(x => x.name === d.name) || !!d.player }));
     return { year: c.year, season: c.seasonNo, era: c.era, phase: c.phase, round: S ? S.round : 0, rounds: S ? S.tracks.length : 0, next, nextName: next && TRACKS[next] ? TRACKS[next].name : '', humans, table };
   },
   /** Saisonende im Koop: Host bleibt beim Team (oder nimmt das erste Angebot), Gäste behalten ihre Sitze */
