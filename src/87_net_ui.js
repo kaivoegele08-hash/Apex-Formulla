@@ -108,6 +108,48 @@ Object.assign(UI, {
     );
   },
 
+  /** Koop-Karriere in der Lobby: Host wählt Speicherplatz (neu/laden), alle sehen Kalender und WM */
+  _coopCard(S, isHost, coopOn, CS, set) {
+    const card = h('div.card', h('h3', 'Koop-Karriere'));
+    if (coopOn && CS) {
+      const tbl = h('table.res', h('tr', h('th', 'Pos'), h('th', 'Fahrer'), h('th', 'Team'), h('th', 'Siege'), h('th', 'Pkt')));
+      for (const r of CS.table) tbl.append(h('tr' + (r.human ? '.me' : ''), h('td.num', String(r.pos)), h('td', r.human ? h('b', r.name) : r.name), h('td', teamSw(r.team), Career.teamName(r.team)), h('td.num', String(r.wins)), h('td.num', String(r.pts))));
+      card.append(
+        h('p', h('b', `Saison ${CS.season} · ${CS.year}`), ` · ${eraOf(CS.era).title} · `, CS.phase === 'season' ? `Rennen ${CS.round + 1}/${CS.rounds}: ${CS.nextName}` : 'Saison beendet'),
+        h('p', { style: { fontSize: '13px' } }, 'Menschliche Fahrer: ', CS.humans.map((x, i) => h('span', i ? ', ' : '', teamSw(x.team), h('b', x.name), ` #${x.number}`, x.host ? ' (Host)' : ''))),
+        tbl);
+      if (isHost) {
+        const acts = h('div.actions');
+        if (CS.phase === 'offseason') acts.append(btn('Nächste Saison starten', () => { Coop.nextSeason(Game.coop); Game.saveCoop(); S.setCoop(Game.coopSlot); this.toast('Neue Saison – Kalender steht.'); }, 'primary small', '▶'));
+        acts.append(btn('Koop beenden (bleibt gespeichert)', () => { S.setCoop(0); }, 'ghost small'));
+        card.append(acts);
+      } else card.append(h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Der Host speichert die Karriere. Du behältst deinen Sitz, solange du mit demselben Profil (Freundescode) beitrittst.'));
+      return card;
+    }
+    if (!isHost) { card.append(h('p', { style: { color: '#7d8898', fontSize: '13px' } }, 'Freies Rennen. Der Host kann eine gemeinsame Karriere starten oder laden.')); return card; }
+    card.append(h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Gemeinsame Karriere mit Kalender, WM und Fahrermarkt. Der Host speichert; Mitspieler behalten ihren Sitz über alle Saisons.'));
+    for (const slot of [1, 2, 3]) {
+      const inf = Game.coopInfo(slot);
+      const row = h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', margin: '4px 0', flexWrap: 'wrap' } }, h('b', `Platz ${slot}: `));
+      if (inf) {
+        row.append(h('span', { style: { flex: '1', fontSize: '13px' } }, `${inf.name} · ${inf.team} · Saison ${inf.season} (${inf.year}) · ${inf.phase === 'season' ? `Rennen ${inf.round + 1}/${inf.rounds}` : 'Saisonende'}${inf.guests.length ? ' · mit ' + inf.guests.join(', ') : ''}`),
+          btn('Laden', () => { if (!Game.useCoop(slot)) return this.toast('Spielstand defekt'); S.setCoop(slot); }, 'small primary'),
+          btn('Löschen', () => this.confirm(`Koop-Karriere auf Platz ${slot} löschen?`, () => { Game.endCoop(slot); this.show('lobby', { noHistory: true }); }), 'small ghost'));
+      } else row.append(h('span', { style: { flex: '1', color: '#7d8898' } }, 'leer'), btn('Neue Koop-Karriere', () => this._coopNew(S, slot, set), 'small'));
+      card.append(row);
+    }
+    return card;
+  },
+  /** Neue Koop-Karriere: Team aus den Startangeboten wählen */
+  _coopNew(S, slot, set) {
+    const pr = NetProfile.get(), num = (Game.settings.game && Game.settings.game.number) || 77;
+    const c = Game.newCoop(slot, { name: S.me.name || pr.name || 'Host', number: num, era: set.era || 'e2026', strength: Game.settings.race.strength || 1, quali: true, qualiMin: 10, weather: 'random' });
+    const m = h('div.modal'), box = h('div.box', { style: { maxWidth: '620px' } }, h('h2.ital', 'Neue Koop-Karriere'), h('p', 'Wähle dein Team (Startangebote). Mitspieler kommen in dein Team, solange dort Platz ist, sonst ins nächstbeste Team.'));
+    for (const of of c.offers) box.append(h('div.actions', btn(`${Career.teamName(of.team)} – ${of.cond.text}`, () => { m.remove(); Career.sign(c, of); Game.saveCoop(); S.setCoop(slot); }, 'primary small')));
+    box.append(h('div.actions', btn('Abbrechen', () => { m.remove(); Game.endCoop(slot); }, 'ghost small')));
+    m.append(box); $('modalRoot').append(m);
+  },
+
   scr_lobby(opts = {}) {
     const S = Net.session;
     if (!S) return this.scr_multi();
@@ -132,8 +174,13 @@ Object.assign(UI, {
       opt('Tageszeit', toggle([['track', 'Standard'], ['morning', 'Vormittag'], ['afternoon', 'Nachmittag'], ['evening', 'Abend'], ['dusk', 'Dämmerung'], ['night', 'Nacht']].map(([value, label]) => ({ value, label })), set.tod, v => st('tod', v)), set.tod),
       opt('Schaden', toggle([{ value: 'off', label: 'Aus' }, { value: 'reduced', label: 'Reduziert' }, { value: 'full', label: 'Voll' }], set.damage, v => st('damage', v)), set.damage),
       opt('Safety Car', toggle([{ value: true, label: 'An' }, { value: false, label: 'Aus' }], set.safetyCar !== false, v => st('safetyCar', v)), set.safetyCar !== false ? 'an' : 'aus'));
+    const coopOn = !!set.coop, CS = L.coop;
+    if (coopOn) settingsCard.prepend(h('p', { style: { color: '#ffd400', fontSize: '12px' } }, 'Koop-Karriere aktiv: Strecke, Epoche, Runden und Wetter kommen aus dem Kalender.'));
+    if (coopOn) settingsCard.querySelectorAll('button').forEach(b => { b.disabled = true; });
     const myCar = h('div.card', h('h3', 'Dein Auto'),
-      chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), me.team, v => { Game.settings.game.team = v; Game.saveSettings(); S.setMe({ team: v }); }));
+      coopOn ? h('p', teamSw(me.team), ' ', Career.teamName(me.team), h('small', { style: { color: '#7d8898' } }, ' – in der Koop-Karriere ist dein Cockpit fest.'))
+        : chips(TEAMS.map(t => ({ value: t.id, label: t.name, color: t.colors[0] })), me.team, v => { Game.settings.game.team = v; Game.saveSettings(); S.setMe({ team: v }); }));
+    const coopCard = this._coopCard(S, isHost, coopOn, CS, set);
     const chatBox = h('div', { style: { height: '200px', overflow: 'auto', background: '#0e1117', padding: '8px', fontSize: '13px', border: '1px solid #1d2430' } },
       (L.chat || []).map(c => h('div', c.name ? [h('b', c.name + ': '), c.text] : h('i', { style: { color: '#7d8898' } }, c.text))));
     setTimeout(() => { chatBox.scrollTop = 1e6; }, 0);
@@ -158,7 +205,8 @@ Object.assign(UI, {
       lan.append(h('p', { style: { fontSize: '12px', color: '#7d8898' } }, 'Ohne Internet / LAN: für jeden Mitspieler einen Einladungs-Code erzeugen.'), mk);
     }
     const ready = !isHost ? (me.ready ? btn('Nicht bereit', () => S.ready(false), '') : btn('Bereit', () => S.ready(true), 'primary', '✔')) : null;
-    const start = isHost ? btn(S.allReady() ? 'Rennen starten' : 'Rennen starten (nicht alle bereit)', () => { const go = () => S.start(); if (!S.allReady()) this.confirm('Nicht alle Spieler sind bereit. Trotzdem starten?', go); else go(); }, 'primary', '▶') : null;
+    const coopWait = coopOn && CS && CS.phase !== 'season';
+    const start = isHost && coopWait ? null : isHost ? btn(S.allReady() ? 'Rennen starten' : 'Rennen starten (nicht alle bereit)', () => { const go = () => S.start(); if (!S.allReady()) this.confirm('Nicht alle Spieler sind bereit. Trotzdem starten?', go); else go(); }, 'primary', '▶') : null;
     const codeTxt = L.code ? 'APEX-' + L.code : '';
     return h('section.screen.solid', { id: 'lobbyScreen' },
       h('header', h('span.crumb', 'Mehrspieler · Lobby'), h('h1', codeTxt || (isHost ? 'LAN-Lobby' : 'Lobby')), codeTxt ? copyBtn(() => codeTxt, 'Code kopieren') : null,
@@ -168,7 +216,7 @@ Object.assign(UI, {
           h('div.card', h('h3', 'Spieler'), players),
           myCar,
           h('div.card', h('h3', 'Chat'), chatBox, h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } }, chatIn, btn('Senden', sendChat, 'small')))),
-        h('div.col', { style: { flex: '0 1 480px' } }, settingsCard, isHost ? h('div.card', h('h3', 'Mitspieler einladen'), codeTxt ? h('p', 'Code ', h('b', codeTxt), ' weitergeben – oder in der Freundesliste „Einladen“.') : null, lan) : null)),
+        h('div.col', { style: { flex: '0 1 480px' } }, coopCard, settingsCard, isHost ? h('div.card', h('h3', 'Mitspieler einladen'), codeTxt ? h('p', 'Code ', h('b', codeTxt), ' weitergeben – oder in der Freundesliste „Einladen“.') : null, lan) : null)),
       h('div.actions', start, ready, btn('Lobby verlassen', () => this.confirm(isHost ? 'Lobby schließen? Alle Mitspieler werden getrennt.' : 'Lobby verlassen?', () => { Net.leave(); this.show('multi', { noHistory: true }); }), 'ghost')),
     );
   },

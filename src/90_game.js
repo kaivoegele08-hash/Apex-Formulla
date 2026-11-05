@@ -120,6 +120,13 @@ const Game = {
     if (this.career.phase === 'offseason' && this._bakFor !== this.career.history.length) { this._bakFor = this.career.history.length; Save.set('career.' + this.careerSlot + '.bak', this.career); }
   },
   restoreCareerBackup(slot) { const b = Save.get('career.' + slot + '.bak', null); if (!b) return false; Save.set('career.' + slot, b); if (slot === this.careerSlot) this.career = b; return true; },
+  // Koop-Karriere (Mehrspieler): Speicherplätze coop.1–3, nur beim Host
+  loadCoop(slot) { const c = Save.get('coop.' + slot, null); return c && c.v === CAREER_V && c.coop ? c : null; },
+  coopInfo(slot) { const c = this.loadCoop(slot); if (!c) return null; return { name: c.me.name, team: Career.teamName(c.team), season: c.seasonNo, year: c.year, era: eraOf(c.era).title, round: c.season ? c.season.round : 0, rounds: c.season ? c.season.tracks.length : 0, guests: Object.values(c.coop.humans).map(h => h.name), phase: c.phase }; },
+  useCoop(slot) { this.coopSlot = slot; this.coop = this.loadCoop(slot); return this.coop; },
+  newCoop(slot, opts) { this.coopSlot = slot; this.coop = Coop.create(opts); this.saveCoop(); return this.coop; },
+  saveCoop() { if (this.coop && this.coopSlot) Save.set('coop.' + this.coopSlot, this.coop); },
+  endCoop(slot) { Save.remove('coop.' + slot); if (this.coopSlot === slot) { this.coop = null; this.coopSlot = 0; } },
   newCareer(opts) { this.career = Career.create(opts); this.saveCareer(); },
   endCareer(slot = this.careerSlot) { if (slot === this.careerSlot) { this.career = null; this.careerRound = false; } Save.remove('career.' + slot); Save.remove('career.' + slot + '.bak'); },
   closeCareer() { this.career = null; this.careerRound = false; },
@@ -298,7 +305,7 @@ const Game = {
   raceParams() {
     const R = this.settings.race, G = this.settings.game, C = this.careerRound && this.career ? this.career : null;
     const NH = this.netHost;
-    if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: 1, weather: s.weatherType || 'dry', quali: s.quali > 0, qualiMin: s.quali || 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
+    if (NH) { const s = NH.settings; return { era: s.era, trackId: TRACKS[s.track] ? s.track : 'ringpark', laps: s.laps, opponents: NH.grid.length - 1, strength: s.coop && this.coop ? this.coop.settings.strength : 1, weather: s.weatherType || 'dry', quali: s.quali > 0, qualiMin: s.quali || 0, team: NH.me.team, name: NH.me.name, number: NH.me.number, net: true, tod: s.tod, raceOverride: { damage: s.damage, safetyCar: s.safetyCar, mandatory: 'off' } }; }
     const S = C ? C.season : this.season && this.seasonRound ? this.season : null;
     if (!S) return { era: G.era || 'e2026', trackId: this.trackId, laps: R.laps, opponents: R.opponents, strength: R.strength, weather: G.weather || 'dry', quali: !!R.quali, qualiMin: R.qualiMin || 10, team: G.team, name: G.playerName || 'Du', number: G.number };
     const trackId = TRACKS[S.tracks[S.round]] ? S.tracks[S.round] : 'ringpark';
@@ -307,7 +314,7 @@ const Game = {
   },
   _field(P) {
     const R = this.settings.race;
-    if (P.net) return this.netHost.grid.map(g => g.kind === 'host' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, player: true } : g.kind === 'remote' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, remote: true, netId: g.id } : { driver: g.driver, team: g.team, number: g.number });
+    if (P.net) { const co = this.netHost.settings.coop && this.coop; return this.netHost.grid.map(g => g.kind === 'host' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, player: true, trackGrip: co ? Career.grip(co, g.team) : undefined } : g.kind === 'remote' ? { driver: { name: g.name, nat: '', num: g.number, team: g.team, rating: 1 }, team: g.team, number: g.number, remote: true, netId: g.id } : { driver: g.driver, team: g.team, number: g.number, trackGrip: co && g.driver ? g.driver.trackGrip : undefined }); }
     if (P.career) { const c = this.career, f = buildField({ playerTeam: c.team, playerName: c.me.name, playerNumber: c.me.number, drivers: Career.raceDrivers(c) }); f.find(e => e.player).trackGrip = Career.grip(c, c.team); return f; }
     return buildField({ playerTeam: P.team, playerName: P.name, playerNumber: P.number, size: P.opponents + 1, gridMode: P.season ? 'rating' : R.grid, playerGrid: P.season ? 'middle' : R.playerGrid }); },
   /** Nächster Schritt: mit Qualifying zuerst die Qualifikation, sonst direkt das Rennen */
@@ -450,7 +457,7 @@ const Game = {
     Events.on('race:pitdone', (e) => { if (e.player) UI.hudMsg('Zurück auf der Strecke – du fährst', 2200); });
     Events.on('race:finished', (e) => { if (e.player) this._playerDone(`Zielflagge – Platz ${e.pos}`); });
     Events.on('race:retired', (e) => { if (e.player) this._playerDone('Ausgeschieden'); });
-    Events.on('race:over', () => { if (this.netHost && Net.session === this.netHost) this.netHost.sendResult(); });
+    Events.on('race:over', () => { if (this.netHost && Net.session === this.netHost) { this.netHost.scoreCoop(); this.netHost.sendResult(); } });
     Events.on('net:closed', (why) => { this.netHost = null; if (this.mode === 'netclient' || (this.state !== 'menu' && this.raceMode && Net.active === false && this.netView)) { this.toMenu(); } UI.toast('Mehrspieler: ' + (why || 'Verbindung beendet'), 5000); if (UI.current === 'lobby') UI.show('multi', { noHistory: true }); });
     Events.on('net:lobbyAgain', () => { if (this.mode === 'netclient') { this.toMenu(); UI.show('lobby', { noHistory: true }); } });
     Events.on('race:over', () => { if (this.state === 'finished' && UI.current === 'results') UI.show('results', { noHistory: true }); });

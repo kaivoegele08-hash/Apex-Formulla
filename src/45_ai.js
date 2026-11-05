@@ -187,13 +187,16 @@ class RacingLine {
   }
 }
 
+/** Stärke-Regler → Faktor auf die Griffausnutzung (≤ 1; über 100 % gibt es zusätzlich Haftung über trackGrip) */
+function aiStrengthMul(strength) { return strength >= 1 ? 1 : 1 - (1 - strength) * 0.33; }
 /** Fahrerprofile: skill = Griffausnutzung, aggression = Überholbereitschaft, consistency = Streuung */
 function makeAIProfile(driver, strength = 1, rng = Math.random) {
   const base = driver.rating != null ? driver.rating : 0.5;              // 0…1
   return {
-    skill: clamp((0.955 + 0.045 * base) * strength, 0.80, 1.0),
-    aggression: clamp(0.35 + 0.5 * (driver.aggression ?? rng()), 0, 1),
-    consistency: clamp(0.6 + 0.35 * base + (rng() - 0.5) * 0.1, 0.3, 0.98),
+    // Stärke-Regler 85–100 % → 95–100 % Griffausnutzung (vorher 85–100 %: die leichteste Stufe war viel zu langsam)
+    skill: clamp((0.955 + 0.045 * base) * aiStrengthMul(strength), 0.88, 1.0),
+    aggression: clamp(0.35 + 0.5 * (driver.aggression ?? rng()) + 0.6 * Math.max(0, strength - 0.95), 0, 1),
+    consistency: clamp(0.6 + 0.35 * base + (rng() - 0.5) * 0.1 + 0.8 * Math.max(0, strength - 0.9), 0.3, 0.98),
     reaction: 0.17 + (1 - base) * 0.12 + rng() * 0.08,
   };
 }

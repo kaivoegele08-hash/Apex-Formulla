@@ -55,6 +55,7 @@ class NetHost {
     let number = clamp(m.number | 0, 1, 99); while (this.players.some(p => p.number === number)) number = number % 99 + 1;
     const p = { id: this.nextId++, name, team: TEAMS.some(t => t.id === m.team) ? m.team : TEAMS[0].id, number, ready: false, host: false, ping: 0, code: m.code || '' };
     link.joined = true; this.players.push(p); this.links.set(p.id, link);
+    this._coopSeat(p);
     link.onMsg = (mm) => this._onMsg(p, mm);
     link.onBin = (buf) => this._onBin(p, buf);
     link.onClose = () => this._left(p);
@@ -77,6 +78,7 @@ class NetHost {
   _onMsg(p, m) {
     if (m.t === 'chat') this.say(p.name, String(m.text || '').slice(0, 200));
     else if (m.t === 'ready') { p.ready = !!m.on; this.broadcastLobby(); }
+    else if (m.t === 'me' && this.settings.coop) { this.broadcastLobby(); }   // Koop-Karriere: Sitz bleibt fest
     else if (m.t === 'me') { if (m.team && TEAMS.some(t => t.id === m.team)) p.team = m.team; if (m.number && !this.players.some(o => o !== p && o.number === m.number)) p.number = clamp(m.number | 0, 1, 99); this.broadcastLobby(); }
     else if (m.t === 'leave') { p.left = true; const l = this.links.get(p.id); if (l) l.close(); }
     else if (m.t === 'qlap') { const t = +m.time; if (t > 20 && t < (this.qTimes.get(p.id) ?? Infinity)) this.qTimes.set(p.id, t); }
@@ -112,7 +114,7 @@ class NetHost {
     if (this.race) { const e = this.race.entries.find(x => x.netId === p.id); if (e && !e.retired && !e.finished) { e.netRetired = true; } }
     this.broadcastLobby();
   }
-  lobbyMsg() { return { t: 'lobby', code: this.code, state: this.state, settings: this.settings, players: this.players.map(p => ({ id: p.id, name: p.name, team: p.team, number: p.number, ready: p.ready, host: p.host, ping: Math.round(p.ping) })), chat: this.chat.slice(-40) }; }
+  lobbyMsg() { return { t: 'lobby', code: this.code, state: this.state, settings: this.settings, coop: this.settings.coop && Game.coop ? Coop.summary(Game.coop) : null, players: this.players.map(p => ({ id: p.id, name: p.name, team: p.team, number: p.number, ready: p.ready, host: p.host, ping: Math.round(p.ping) })), chat: this.chat.slice(-40) }; }
   broadcast(m) { for (const l of this.links.values()) l.send(m); }
   broadcastLobby() { this.broadcast(this.lobbyMsg()); Events.emit('net:lobby', this.lobbyMsg()); }
   say(name, text) { this.chat.push({ name, text, t: Date.now() }); if (this.chat.length > 80) this.chat.shift(); this.broadcastLobby(); }
@@ -121,8 +123,27 @@ class NetHost {
   setMe(patch) { Object.assign(this.me, patch); this.broadcastLobby(); }
   kick(id) { const l = this.links.get(id); if (l) { l.send({ t: 'refused', why: 'Vom Host entfernt' }); setTimeout(() => l.close(), 200); } }
   allReady() { return this.players.every(p => p.ready); }
+  /** Koop-Karriere aktivieren/abschalten (slot 0 = freies Rennen) */
+  setCoop(slot) {
+    this.settings.coop = slot | 0;
+    if (slot) { const c = Game.coop; this.me.team = c.team; this.me.number = c.me.number; this.me.name = c.me.name; for (const p of this.players) if (!p.host) this._coopSeat(p); this._coopSettings(); Game.saveCoop(); }
+    this.broadcastLobby();
+  }
+  /** Gast in der Koop-Karriere platzieren (bekannte Gäste über den Freundescode) */
+  _coopSeat(p) {
+    const c = this.settings.coop && Game.coop; if (!c) return;
+    const h = Coop.seat(c, p.code || ('gast:' + p.name), p.name, p.number);
+    p.team = h.team; p.number = h.number;
+  }
+  /** Strecke, Epoche, Runden, Wetter, Qualifying kommen aus der Karriere */
+  _coopSettings() {
+    const c = Game.coop, S = c && c.season; if (!S || Season.done(S)) return;
+    const track = S.tracks[S.round];
+    Object.assign(this.settings, { track: TRACKS[track] ? track : TRACK_ORDER[0], era: c.era, laps: Season.lapsFor(S, Game.getTrackModel(TRACKS[track] ? track : TRACK_ORDER[0])), weather: c.settings.weather, quali: c.settings.quali ? Math.min(10, c.settings.qualiMin) : 0, damage: 'full', safetyCar: true });
+  }
   /** Startaufstellung: Menschen zufällig verteilt zwischen den KI-Fahrern (nach Stärke) */
   _grid() {
+    if (this.settings.coop && Game.coop) return this._coopGrid();
     const S = this.settings;
     applyEra(S.era);
     const humanTeams = this.players.map(p => p.team);
@@ -132,8 +153,29 @@ class NetHost {
     for (const p of this.players.slice().sort(() => Math.random() - 0.5)) grid.splice(Math.floor(Math.random() * (grid.length + 1)), 0, { kind: p.host ? 'host' : 'remote', id: p.id, name: p.name, team: p.team, number: p.number });
     return grid;
   }
+  /** Koop-Karriere: KI-Fahrer der Karriere (Menschen verdrängen die Schwächeren ihres Teams), Startplätze nach Stärke */
+  _coopGrid() {
+    const c = Game.coop; applyEra(c.era);
+    for (const p of this.players) if (!p.host) this._coopSeat(p);
+    this.me.team = c.team; this.me.number = c.me.number;
+    const ai = Coop.aiDrivers(c, this.players.map(p => p.team)), used = new Set(this.players.map(p => p.number));
+    const rows = ai.map(d => ({ kind: 'ai', name: d.name, team: d.team, number: used.has(d.num) ? 100 - d.num : d.num, driver: d, r: d.rating * Career.grip(c, d.team) }));
+    for (const p of this.players) rows.push({ kind: p.host ? 'host' : 'remote', id: p.id, name: p.host ? c.me.name : ((c.coop.humans[p.code || ('gast:' + p.name)] || p).name), team: p.team, number: p.number, r: 0.8 * Career.grip(c, p.team) });
+    rows.sort((a, b) => b.r - a.r);
+    return rows;
+  }
+  /** Rennen der Koop-Karriere werten (Host, einmal je Rennen) */
+  scoreCoop() {
+    const c = Game.coop, race = this.race; if (!this.settings.coop || !c || !race || race.coopScored) return;
+    race.coopScored = true;
+    Coop.afterRace(c, race.classification(), race.fastest, race.track.name, (id) => { const p = this.players.find(x => x.id === id); return p ? (p.code || ('gast:' + p.name)) : null; });
+    Game.saveCoop();
+    this._coopSettings();
+    this.sys(c.phase === 'offseason' ? `Saison ${c.year} beendet – der Host startet die nächste Saison.` : `Gewertet. Nächstes Rennen: ${TRACKS[this.settings.track] ? TRACKS[this.settings.track].name : this.settings.track}.`);
+  }
   start() {
     if (this.state !== 'lobby') return;
+    if (this.settings.coop && Game.coop) { if (Game.coop.phase !== 'season') return; this._coopSettings(); }
     const grid = this.grid = this._grid();
     const wx = new Weather(this.settings.weather || 'dry');      // Zufall einmal auflösen, alle bekommen denselben Typ
     this.settings.weatherType = wx.type;
